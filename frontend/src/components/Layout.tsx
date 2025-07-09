@@ -22,7 +22,7 @@ const Layout: React.FC = () => {
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    { name: 'Budgets', href: '/budgets', icon: Wallet },
+    { name: 'Budget', href: '/budget', icon: Wallet },
     { name: 'Transactions', href: '/transactions', icon: Receipt },
     { name: 'Scenarios', href: '/scenarios', icon: Target },
     { name: 'Bank Accounts', href: '/bank-accounts', icon: Building2 },

@@ -101,7 +101,7 @@ const Dashboard: React.FC = () => {
         <h2 className="text-xl font-semibold text-gray-900 mb-4">Quick Actions</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Link
-            to="/budgets/new"
+            to="/budget"
             className="flex items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
           >
             <Plus className="h-8 w-8 text-primary-600 mr-3" />
@@ -171,7 +171,7 @@ const Dashboard: React.FC = () => {
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-gray-900">Active Budgets</h2>
             <Link
-              to="/budgets"
+              to="/budget"
               className="text-primary-600 hover:text-primary-700 flex items-center text-sm"
             >
               View all

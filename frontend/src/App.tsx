@@ -6,8 +6,7 @@ import Layout from './components/Layout';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
-import Budgets from './pages/Budgets';
-import BudgetForm from './pages/BudgetForm';
+import BudgetPage from './pages/Budget';
 import Transactions from './pages/Transactions';
 import Scenarios from './pages/Scenarios';
 import ScenarioForm from './pages/ScenarioForm';
@@ -63,9 +62,7 @@ function App() {
               }>
                 <Route index element={<Navigate to="/dashboard" />} />
                 <Route path="dashboard" element={<Dashboard />} />
-                <Route path="budgets" element={<Budgets />} />
-                <Route path="budgets/new" element={<BudgetForm />} />
-                <Route path="budgets/:id/edit" element={<BudgetForm />} />
+                <Route path="budget" element={<BudgetPage />} />
                 <Route path="transactions" element={<Transactions />} />
                 <Route path="scenarios" element={<Scenarios />} />
                 <Route path="scenarios/new" element={<ScenarioForm />} />
