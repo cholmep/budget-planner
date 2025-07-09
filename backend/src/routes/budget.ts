@@ -15,6 +15,7 @@ const budgetSchema = Joi.object({
       Joi.object({
         name: Joi.string().required(),
         plannedAmount: Joi.number().min(0).required(),
+        actualAmount: Joi.number().min(0).optional(),
         type: Joi.string().valid('income', 'expense').required(),
         frequency: Joi.string().valid('monthly','fortnightly','weekly','yearly','once').default('monthly'),
         _id: Joi.string().optional()
