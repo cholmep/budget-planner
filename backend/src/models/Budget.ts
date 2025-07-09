@@ -11,13 +11,11 @@ export interface IBudget extends Document {
   userId: mongoose.Types.ObjectId;
   name: string;
   description?: string;
-  month: number;
-  year: number;
   categories: IBudgetCategory[];
   totalIncome: number;
   totalExpenses: number;
   netIncome: number;
-  isActive: boolean;
+  // This is a master budget; no active flag needed
   createdAt: Date;
   updatedAt: Date;
 }
@@ -48,7 +46,8 @@ const BudgetSchema = new Schema<IBudget>({
   userId: {
     type: Schema.Types.ObjectId,
     ref: 'User',
-    required: true
+    required: true,
+    unique: true
   },
   name: {
     type: String,
@@ -59,17 +58,7 @@ const BudgetSchema = new Schema<IBudget>({
     type: String,
     trim: true
   },
-  month: {
-    type: Number,
-    required: true,
-    min: 1,
-    max: 12
-  },
-  year: {
-    type: Number,
-    required: true,
-    min: 2020
-  },
+  // This is a master budget; no active flag needed
   categories: [BudgetCategorySchema],
   totalIncome: {
     type: Number,
@@ -82,26 +71,24 @@ const BudgetSchema = new Schema<IBudget>({
   netIncome: {
     type: Number,
     default: 0
-  },
-  isActive: {
-    type: Boolean,
-    default: true
   }
 }, {
   timestamps: true
 });
 
 // Calculate totals before saving
-BudgetSchema.pre('save', function(next) {
-  this.totalIncome = this.categories
-    .filter(cat => cat.type === 'income')
-    .reduce((sum, cat) => sum + cat.plannedAmount, 0);
-    
-  this.totalExpenses = this.categories
-    .filter(cat => cat.type === 'expense')
-    .reduce((sum, cat) => sum + cat.plannedAmount, 0);
-    
-  this.netIncome = this.totalIncome - this.totalExpenses;
+BudgetSchema.pre<IBudget>('save', function(next) {
+  const budget = this as IBudget;
+
+  budget.totalIncome = budget.categories
+    .filter((cat: IBudgetCategory) => cat.type === 'income')
+    .reduce((sum: number, cat: IBudgetCategory) => sum + cat.plannedAmount, 0);
+
+  budget.totalExpenses = budget.categories
+    .filter((cat: IBudgetCategory) => cat.type === 'expense')
+    .reduce((sum: number, cat: IBudgetCategory) => sum + cat.plannedAmount, 0);
+
+  budget.netIncome = budget.totalIncome - budget.totalExpenses;
   next();
 });
 

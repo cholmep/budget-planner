@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 
 import authRoutes from './routes/auth';
-import budgetRoutes from './routes/budgets';
+import budgetRoutes from './routes/budget';
 import transactionRoutes from './routes/transactions';
 import scenarioRoutes from './routes/scenarios';
 import bankRoutes from './routes/bank';
@@ -24,7 +24,7 @@ app.use(express.json());
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/budgets', budgetRoutes);
+app.use('/api/budget', budgetRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/scenarios', scenarioRoutes);
 app.use('/api/bank', bankRoutes);
