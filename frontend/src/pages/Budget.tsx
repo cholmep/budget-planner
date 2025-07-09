@@ -7,7 +7,7 @@ interface Category {
   name: string;
   plannedAmount: number;
   type: 'income' | 'expense';
-  frequency: 'monthly' | 'weekly' | 'yearly' | 'once';
+  frequency: 'monthly' | 'fortnightly' | 'weekly' | 'yearly' | 'once';
 }
 
 interface Budget {
@@ -118,6 +118,7 @@ const BudgetPage: React.FC = () => {
                 <option value="weekly">Weekly</option>
                 <option value="yearly">Yearly</option>
                 <option value="once">Once</option>
+                <option value="fortnightly">Fortnightly</option>
               </select>
               <input
                 type="text"

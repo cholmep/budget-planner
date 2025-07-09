@@ -5,7 +5,7 @@ export interface IBudgetCategory {
   plannedAmount: number;
   actualAmount: number;
   type: 'income' | 'expense';
-  frequency: 'monthly' | 'weekly' | 'yearly' | 'once';
+  frequency: 'monthly' | 'fortnightly' | 'weekly' | 'yearly' | 'once';
 }
 
 export interface IBudget extends Document {
@@ -43,7 +43,7 @@ const BudgetCategorySchema = new Schema<IBudgetCategory>({
   },
   frequency: {
     type: String,
-    enum: ['monthly', 'weekly', 'yearly', 'once'],
+    enum: ['monthly', 'fortnightly', 'weekly', 'yearly', 'once'],
     default: 'monthly',
     required: true
   }
