@@ -15,12 +15,13 @@ const budgetSchema = Joi.object({
       Joi.object({
         name: Joi.string().required(),
         plannedAmount: Joi.number().min(0).required(),
-        type: Joi.string().valid('income', 'expense').required()
+        type: Joi.string().valid('income', 'expense').required(),
+        frequency: Joi.string().valid('monthly','weekly','yearly','once').default('monthly'),
+        _id: Joi.string().optional()
       })
-    )
-    .min(1)
-    .required()
-});
+    ).min(1).required()
+}).unknown(false);
+// when validating the whole payload, we allow unknown at root because Mongo may send _id, createdAt etc.
 
 // GET /api/budget  – fetch the master budget for current user (create if missing)
 router.get('/', authMiddleware, async (req: any, res) => {

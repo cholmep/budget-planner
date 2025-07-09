@@ -7,6 +7,7 @@ interface Category {
   name: string;
   plannedAmount: number;
   type: 'income' | 'expense';
+  frequency: 'monthly' | 'weekly' | 'yearly' | 'once';
 }
 
 interface Budget {
@@ -44,7 +45,8 @@ const BudgetPage: React.FC = () => {
       _id: undefined,
       name: '',
       plannedAmount: 0,
-      type
+      type,
+      frequency: 'monthly'
     };
     setBudget({ ...budget, categories: [...budget.categories, newCategory] });
   };
@@ -106,6 +108,16 @@ const BudgetPage: React.FC = () => {
               >
                 <option value="income">Income</option>
                 <option value="expense">Expense</option>
+              </select>
+              <select
+                className="input w-32"
+                value={cat.frequency}
+                onChange={(e) => updateCategory(idx, 'frequency', e.target.value as any)}
+              >
+                <option value="monthly">Monthly</option>
+                <option value="weekly">Weekly</option>
+                <option value="yearly">Yearly</option>
+                <option value="once">Once</option>
               </select>
               <input
                 type="text"
