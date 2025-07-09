@@ -11,6 +11,8 @@ import scenarioRoutes from './routes/scenarios';
 import bankRoutes from './routes/bank';
 
 dotenv.config();
+console.log('JWT_SECRET:', process.env.JWT_SECRET);
+
 
 const app = express();
 const PORT = process.env.PORT || 5000;
