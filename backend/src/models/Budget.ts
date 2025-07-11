@@ -6,6 +6,8 @@ export interface IBudgetCategory {
   actualAmount: number;
   type: 'income' | 'expense';
   frequency: 'monthly' | 'fortnightly' | 'weekly' | 'yearly' | 'once';
+  description?: string;
+  categoryId?: mongoose.Types.ObjectId; // Reference to the Category model
 }
 
 export interface IBudget extends Document {
@@ -16,7 +18,6 @@ export interface IBudget extends Document {
   totalIncome: number;
   totalExpenses: number;
   netIncome: number;
-  // This is a master budget; no active flag needed
   createdAt: Date;
   updatedAt: Date;
 }
@@ -46,6 +47,14 @@ const BudgetCategorySchema = new Schema<IBudgetCategory>({
     enum: ['monthly', 'fortnightly', 'weekly', 'yearly', 'once'],
     default: 'monthly',
     required: true
+  },
+  description: {
+    type: String,
+    trim: true
+  },
+  categoryId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Category'
   }
 });
 
@@ -65,7 +74,6 @@ const BudgetSchema = new Schema<IBudget>({
     type: String,
     trim: true
   },
-  // This is a master budget; no active flag needed
   categories: [BudgetCategorySchema],
   totalIncome: {
     type: Number,
@@ -88,12 +96,12 @@ BudgetSchema.pre<IBudget>('save', function(next) {
   const budget = this as IBudget;
 
   budget.totalIncome = budget.categories
-    .filter((cat: IBudgetCategory) => cat.type === 'income')
-    .reduce((sum: number, cat: IBudgetCategory) => sum + cat.plannedAmount, 0);
+    .filter(cat => cat.type === 'income')
+    .reduce((sum, cat) => sum + cat.plannedAmount, 0);
 
   budget.totalExpenses = budget.categories
-    .filter((cat: IBudgetCategory) => cat.type === 'expense')
-    .reduce((sum: number, cat: IBudgetCategory) => sum + cat.plannedAmount, 0);
+    .filter(cat => cat.type === 'expense')
+    .reduce((sum, cat) => sum + cat.plannedAmount, 0);
 
   budget.netIncome = budget.totalIncome - budget.totalExpenses;
   next();

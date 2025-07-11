@@ -1,7 +1,10 @@
 import express from 'express';
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import Joi from 'joi';
 import User from '../models/User';
+import { authMiddleware } from '../middleware/auth';
+import { initializeDefaultCategories } from './categories';
+import Joi from 'joi';
 
 const router = express.Router();
 
@@ -28,25 +31,33 @@ router.post('/register', async (req, res) => {
 
     const { email, password, firstName, lastName } = req.body;
 
-    // Check if user exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
+    // Check if user already exists
+    let user = await User.findOne({ email });
+    if (user) {
       return res.status(400).json({ message: 'User already exists' });
     }
 
-    // Create user
-    const user = new User({ email, password, firstName, lastName });
+    // Create new user
+    user = new User({
+      email,
+      password,
+      firstName,
+      lastName
+    });
+
     await user.save();
 
-    // Generate token
+    // Initialize default categories for the new user
+    await initializeDefaultCategories(user._id.toString());
+
+    // Generate JWT token
     const token = jwt.sign(
       { userId: user._id },
-      process.env.JWT_SECRET || 'your-secret-key',
+      process.env.JWT_SECRET as string,
       { expiresIn: '7d' }
     );
 
     res.status(201).json({
-      message: 'User created successfully',
       token,
       user: {
         id: user._id,

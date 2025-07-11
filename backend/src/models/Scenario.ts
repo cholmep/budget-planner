@@ -21,6 +21,7 @@ export interface IScenario extends Document {
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
+  generateProjections(): void;
 }
 
 const ScenarioProjectionSchema = new Schema<IScenarioProjection>({

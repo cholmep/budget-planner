@@ -1,5 +1,10 @@
-import express from 'express';
+import express, { Request, Response, RequestHandler } from 'express';
 import { authMiddleware } from '../middleware/auth';
+import monthlyBankBalanceController from '../controllers/monthlyBankBalanceController';
+
+interface AuthenticatedRequest extends Request {
+  userId: string;
+}
 
 const router = express.Router();
 
@@ -101,5 +106,26 @@ router.get('/transactions', authMiddleware, async (req: any, res: any) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+// Monthly balance routes with proper typing
+router.get('/monthly-balances', authMiddleware, (async (req: Request, res: Response) => {
+  const authenticatedReq = req as AuthenticatedRequest;
+  return monthlyBankBalanceController.getAllForUser(authenticatedReq, res);
+}) as RequestHandler);
+
+router.get('/monthly-balances/:year/:month', authMiddleware, (async (req: Request, res: Response) => {
+  const authenticatedReq = req as AuthenticatedRequest;
+  return monthlyBankBalanceController.getForUserByMonth(authenticatedReq, res);
+}) as RequestHandler);
+
+router.post('/monthly-balances', authMiddleware, (async (req: Request, res: Response) => {
+  const authenticatedReq = req as AuthenticatedRequest;
+  return monthlyBankBalanceController.upsertForUser(authenticatedReq, res);
+}) as RequestHandler);
+
+router.get('/monthly-aggregates', authMiddleware, (async (req: Request, res: Response) => {
+  const authenticatedReq = req as AuthenticatedRequest;
+  return monthlyBankBalanceController.getMonthlyAggregates(authenticatedReq, res);
+}) as RequestHandler);
 
 export default router;

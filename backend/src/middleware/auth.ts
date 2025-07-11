@@ -1,18 +1,26 @@
+import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { IUser } from '../models/User';
 
-export const authMiddleware = (req: any, res: any, next: any) => {
+export interface AuthRequest extends Request {
+  user: IUser;
+}
+
+export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
-    
+
     if (!token) {
-      return res.status(401).json({ message: 'No token provided' });
+      return res.status(401).json({ message: 'No authentication token provided' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key') as any;
-    req.userId = decoded.userId;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key') as { userId: string };
+    
+    // Add user to request
+    (req as AuthRequest).user = { _id: decoded.userId } as IUser;
+    
     next();
   } catch (error) {
-    console.error('Auth middleware error:', error);
-    res.status(401).json({ message: 'Invalid token' });
+    res.status(401).json({ message: 'Invalid authentication token' });
   }
 };

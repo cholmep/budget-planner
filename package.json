@@ -9,10 +9,22 @@
     "install-all": "npm install && cd backend && npm install && cd ../frontend && npm install",
     "build": "cd frontend && npm run build && cd ../backend && npm run build"
   },
-  "keywords": ["budget", "finance", "planning", "banking"],
+  "keywords": [
+    "budget",
+    "finance",
+    "planning",
+    "banking"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
     "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "@types/react": "^18.2.37",
+    "@types/react-dom": "^18.2.15",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "recharts": "^3.1.0"
   }
 }

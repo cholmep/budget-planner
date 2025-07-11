@@ -8,9 +8,13 @@ export interface ITransaction extends Document {
   category: string;
   type: 'income' | 'expense';
   date: Date;
+  source: 'manual' | 'bank' | 'recurring';
   isAutomated: boolean;
   bankAccountId?: string;
   plaidTransactionId?: string;
+  recurring?: boolean;
+  frequency?: 'weekly' | 'monthly' | 'yearly';
+  nextRecurrence?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -49,6 +53,12 @@ const TransactionSchema = new Schema<ITransaction>({
     required: true,
     default: Date.now
   },
+  source: {
+    type: String,
+    enum: ['manual', 'bank', 'recurring'],
+    required: true,
+    default: 'manual'
+  },
   isAutomated: {
     type: Boolean,
     default: false
@@ -62,14 +72,50 @@ const TransactionSchema = new Schema<ITransaction>({
     trim: true,
     unique: true,
     sparse: true
+  },
+  recurring: {
+    type: Boolean,
+    default: false
+  },
+  frequency: {
+    type: String,
+    enum: ['weekly', 'monthly', 'yearly'],
+    required: function(this: ITransaction) { return this.recurring; }
+  },
+  nextRecurrence: {
+    type: Date,
+    required: function(this: ITransaction) { return this.recurring; }
   }
 }, {
   timestamps: true
 });
 
-// Index for efficient queries
+// Indexes for efficient queries
 TransactionSchema.index({ userId: 1, date: -1 });
 TransactionSchema.index({ budgetId: 1 });
 TransactionSchema.index({ plaidTransactionId: 1 });
+TransactionSchema.index({ userId: 1, category: 1, date: -1 });
+TransactionSchema.index({ userId: 1, type: 1, date: -1 });
+TransactionSchema.index({ recurring: 1, nextRecurrence: 1 }, { sparse: true });
+
+// Pre-save middleware to set nextRecurrence for recurring transactions
+TransactionSchema.pre('save', function(next) {
+  if (this.recurring && !this.nextRecurrence) {
+    const date = new Date(this.date);
+    switch (this.frequency) {
+      case 'weekly':
+        date.setDate(date.getDate() + 7);
+        break;
+      case 'monthly':
+        date.setMonth(date.getMonth() + 1);
+        break;
+      case 'yearly':
+        date.setFullYear(date.getFullYear() + 1);
+        break;
+    }
+    this.nextRecurrence = date;
+  }
+  next();
+});
 
 export default mongoose.model<ITransaction>('Transaction', TransactionSchema);

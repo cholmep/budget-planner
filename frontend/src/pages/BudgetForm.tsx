@@ -7,6 +7,7 @@ interface Category {
   name: string;
   plannedAmount: number;
   type: 'income' | 'expense';
+  description?: string;
 }
 
 const BudgetForm: React.FC = () => {
@@ -32,7 +33,8 @@ const BudgetForm: React.FC = () => {
       id: Date.now().toString(),
       name: '',
       plannedAmount: 0,
-      type
+      type,
+      description: ''
     };
     setCategories([...categories, newCategory]);
   };
@@ -142,31 +144,40 @@ const BudgetForm: React.FC = () => {
           </div>
           <div className="space-y-3">
             {incomeCategories.map((category) => (
-              <div key={category.id} className="flex items-center space-x-3">
+              <div key={category.id} className="space-y-3">
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="text"
+                    className="input flex-1"
+                    placeholder="Income source"
+                    value={category.name}
+                    onChange={(e) => updateCategory(category.id, 'name', e.target.value)}
+                  />
+                  <div className="relative">
+                    <span className="absolute left-3 top-2.5 text-gray-500">$</span>
+                    <input
+                      type="number"
+                      className="input w-32 pl-8"
+                      placeholder="0.00"
+                      value={category.plannedAmount}
+                      onChange={(e) => updateCategory(category.id, 'plannedAmount', parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeCategory(category.id)}
+                    className="p-2 text-gray-400 hover:text-red-600"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
                 <input
                   type="text"
-                  className="input flex-1"
-                  placeholder="Income source"
-                  value={category.name}
-                  onChange={(e) => updateCategory(category.id, 'name', e.target.value)}
+                  className="input w-full text-sm"
+                  placeholder="Description (e.g., Monthly salary from Company X)"
+                  value={category.description || ''}
+                  onChange={(e) => updateCategory(category.id, 'description', e.target.value)}
                 />
-                <div className="relative">
-                  <span className="absolute left-3 top-2.5 text-gray-500">$</span>
-                  <input
-                    type="number"
-                    className="input w-32 pl-8"
-                    placeholder="0.00"
-                    value={category.plannedAmount}
-                    onChange={(e) => updateCategory(category.id, 'plannedAmount', parseFloat(e.target.value) || 0)}
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => removeCategory(category.id)}
-                  className="p-2 text-gray-400 hover:text-red-600"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
               </div>
             ))}
           </div>
@@ -187,31 +198,40 @@ const BudgetForm: React.FC = () => {
           </div>
           <div className="space-y-3">
             {expenseCategories.map((category) => (
-              <div key={category.id} className="flex items-center space-x-3">
+              <div key={category.id} className="space-y-3">
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="text"
+                    className="input flex-1"
+                    placeholder="Expense category"
+                    value={category.name}
+                    onChange={(e) => updateCategory(category.id, 'name', e.target.value)}
+                  />
+                  <div className="relative">
+                    <span className="absolute left-3 top-2.5 text-gray-500">$</span>
+                    <input
+                      type="number"
+                      className="input w-32 pl-8"
+                      placeholder="0.00"
+                      value={category.plannedAmount}
+                      onChange={(e) => updateCategory(category.id, 'plannedAmount', parseFloat(e.target.value) || 0)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeCategory(category.id)}
+                    className="p-2 text-gray-400 hover:text-red-600"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
                 <input
                   type="text"
-                  className="input flex-1"
-                  placeholder="Expense category"
-                  value={category.name}
-                  onChange={(e) => updateCategory(category.id, 'name', e.target.value)}
+                  className="input w-full text-sm"
+                  placeholder="Description (e.g., Monthly train pass for commuting)"
+                  value={category.description || ''}
+                  onChange={(e) => updateCategory(category.id, 'description', e.target.value)}
                 />
-                <div className="relative">
-                  <span className="absolute left-3 top-2.5 text-gray-500">$</span>
-                  <input
-                    type="number"
-                    className="input w-32 pl-8"
-                    placeholder="0.00"
-                    value={category.plannedAmount}
-                    onChange={(e) => updateCategory(category.id, 'plannedAmount', parseFloat(e.target.value) || 0)}
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => removeCategory(category.id)}
-                  className="p-2 text-gray-400 hover:text-red-600"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
               </div>
             ))}
           </div>

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "@types/react-toastify": "^4.0.2",
     "ajv": "^8.11.0",
     "ajv-keywords": "^5.1.0",
     "axios": "^1.6.0",
@@ -13,9 +14,12 @@
     "react": "^18.2.0",
     "react-chartjs-2": "^5.2.0",
     "react-dom": "^18.2.0",
+    "react-feather": "^2.0.10",
     "react-hook-form": "^7.47.0",
     "react-query": "^3.39.3",
     "react-router-dom": "^6.18.0",
+    "react-toastify": "^11.0.5",
+    "recharts": "^2.10.3",
     "tailwind-merge": "^2.0.0"
   },
   "devDependencies": {
