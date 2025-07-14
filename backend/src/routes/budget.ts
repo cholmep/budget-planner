@@ -1,5 +1,6 @@
 import express, { Response } from 'express';
 import Joi from 'joi';
+import mongoose from 'mongoose';
 import Budget from '../models/Budget';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
 import { IBudgetCategory } from '../models/Budget';
@@ -15,13 +16,20 @@ const budgetSchema = Joi.object({
       Joi.object({
         name: Joi.string().required(),
         plannedAmount: Joi.number().min(0).required(),
-        actualAmount: Joi.number().min(0).optional(),
+        actualAmount: Joi.number().min(0).optional().default(0),
         type: Joi.string().valid('income', 'expense').required(),
         frequency: Joi.string().valid('monthly','fortnightly','weekly','yearly','once').default('monthly'),
         description: Joi.string().allow('').optional(),
-        _id: Joi.string().optional()
+        categoryId: Joi.alternatives().try(
+          Joi.string().pattern(/^[0-9a-fA-F]{24}$/),
+          Joi.object().instance(mongoose.Types.ObjectId)
+        ).required(),
+        _id: Joi.alternatives().try(
+          Joi.string().pattern(/^[0-9a-fA-F]{24}$/),
+          Joi.object().instance(mongoose.Types.ObjectId)
+        ).optional()
       })
-    ).min(1).required()
+    ).optional().default([])
 }).unknown(true);
 
 // Helper function to wrap async handlers
@@ -53,18 +61,41 @@ router.get('/', authMiddleware, asyncHandler(async (req: AuthRequest, res: Respo
 
 // PUT /api/budget – replace the entire budget
 router.put('/', authMiddleware, asyncHandler(async (req: AuthRequest, res: Response) => {
+  console.log('Received budget update request:', JSON.stringify(req.body, null, 2));
+  
   const { error } = budgetSchema.validate(req.body);
   if (error) {
-    return res.status(400).json({ message: error.details[0].message });
+    console.error('Validation error:', error.details);
+    return res.status(400).json({ 
+      message: error.details[0].message,
+      details: error.details
+    });
   }
 
-  const updated = await Budget.findOneAndUpdate(
-    { userId: req.user._id },
-    req.body,
-    { new: true, upsert: true, runValidators: true }
-  );
+  // Ensure categories have proper ObjectId references
+  const processedBody = {
+    ...req.body,
+    categories: req.body.categories?.map((cat: any) => ({
+      ...cat,
+      categoryId: new mongoose.Types.ObjectId(cat.categoryId),
+      _id: cat._id ? new mongoose.Types.ObjectId(cat._id) : undefined
+    }))
+  };
 
-  res.json(updated);
+  console.log('Processed budget data:', JSON.stringify(processedBody, null, 2));
+
+  try {
+    const updated = await Budget.findOneAndUpdate(
+      { userId: req.user._id },
+      processedBody,
+      { new: true, upsert: true, runValidators: true }
+    );
+
+    res.json(updated);
+  } catch (err: any) {
+    console.error('Database error:', err);
+    res.status(500).json({ message: 'Failed to update budget', error: err.message });
+  }
 }));
 
 // PATCH /api/budget/:categoryId – update a single category (optional helper)

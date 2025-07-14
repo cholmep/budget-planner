@@ -36,13 +36,15 @@ const BudgetForm: React.FC = () => {
       type,
       description: ''
     };
-    setCategories([...categories, newCategory]);
+    setCategories(prevCategories => [newCategory, ...prevCategories]);
   };
 
   const updateCategory = (id: string, field: keyof Category, value: string | number) => {
-    setCategories(categories.map(cat => 
-      cat.id === id ? { ...cat, [field]: value } : cat
-    ));
+    setCategories(prevCategories => 
+      prevCategories.map(cat => 
+        cat.id === id ? { ...cat, [field]: value } : cat
+      )
+    );
   };
 
   const removeCategory = (id: string) => {

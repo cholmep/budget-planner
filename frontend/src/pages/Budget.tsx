@@ -1,129 +1,286 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import axios from 'axios';
-import { Plus, Trash2, Save, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Save, RefreshCw, Edit2, X } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from 'react-query';
 
 interface Category {
+  _id: string;
+  name: string;
+  type: 'income' | 'expense';
+  isDefault: boolean;
+  sortOrder: number;
+}
+
+interface BudgetItem {
   _id?: string;
+  categoryId: string;
   name: string;
   plannedAmount: number;
   type: 'income' | 'expense';
   frequency: 'monthly' | 'fortnightly' | 'weekly' | 'yearly' | 'once';
   description?: string;
+  actualAmount: number; // Added actualAmount
 }
 
-interface Budget {
-  _id?: string;
+interface FormData {
+  categoryId: string;
   name: string;
-  description?: string;
-  categories: Category[];
-}
-
-interface CategoryOption {
-  _id: string;
-  name: string;
+  plannedAmount: string;
   type: 'income' | 'expense';
-  isDefault: boolean;
+  frequency: 'monthly' | 'fortnightly' | 'weekly' | 'yearly' | 'once';
+  description: string;
 }
 
 const BudgetPage: React.FC = () => {
-  const [budget, setBudget] = useState<Budget | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [categories, setCategories] = useState<CategoryOption[]>([]);
-  const [initializingCategories, setInitializingCategories] = useState(false);
+  const queryClient = useQueryClient();
+  const [isAddingItem, setIsAddingItem] = useState(false);
+  const [editingItem, setEditingItem] = useState<BudgetItem | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Initialize categories if they don't exist
-  const initializeCategories = async () => {
-    try {
-      setInitializingCategories(true);
-      const { data } = await axios.post('/api/categories/initialize');
-      setCategories(data);
-    } catch (err: any) {
-      if (err.response?.status === 400) {
-        // Categories already exist, just fetch them
-        await fetchCategories();
-      } else {
-        setError(err.response?.data?.message || 'Failed to initialize categories');
-      }
-    } finally {
-      setInitializingCategories(false);
-    }
-  };
+  // Form state
+  const [formData, setFormData] = useState<FormData>({
+    categoryId: '',
+    name: '',
+    plannedAmount: '',
+    type: 'expense',
+    frequency: 'monthly',
+    description: ''
+  });
+
+  // Clear error when form state changes
+  React.useEffect(() => {
+    setError(null);
+  }, [formData]);
 
   // Fetch categories
-  const fetchCategories = async () => {
-    try {
+  const { data: categories } = useQuery<Category[]>(
+    'categories',
+    async () => {
       const { data } = await axios.get('/api/categories');
-      if (data.length === 0) {
-        // If no categories exist, initialize them
-        await initializeCategories();
-      } else {
-        setCategories(data);
-      }
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to load categories');
+      return data;
     }
+  );
+
+  // Fetch budget
+  const { data: budget, isLoading } = useQuery(
+    'budget',
+    async () => {
+      const { data } = await axios.get('/api/budget');
+      return data;
+    }
+  );
+
+  // Mutations for budget items
+  const updateBudget = useMutation(
+    async (updatedBudget: any) => {
+      // Ensure all required fields are present and properly formatted
+      const payload = {
+        name: budget?.name || 'My Budget',
+        description: budget?.description || '',
+        categories: updatedBudget.categories.map((cat: BudgetItem) => {
+          console.log('Processing category for update:', {
+            name: cat.name,
+            categoryId: cat.categoryId,
+            _id: cat._id
+          });
+
+          if (!cat.categoryId) {
+            // Try to find the matching category
+            const matchingCategory = categories?.find(c => c.name === cat.name && c.type === cat.type);
+            if (!matchingCategory) {
+              console.error('Cannot find matching category for:', cat.name);
+              throw new Error(`Cannot find matching category for "${cat.name}"`);
+            }
+            cat.categoryId = matchingCategory._id;
+          }
+
+          const formattedCategory: BudgetItem = {
+            categoryId: cat.categoryId,
+            name: cat.name,
+            plannedAmount: Number(cat.plannedAmount),
+            actualAmount: Number(cat.actualAmount || 0),
+            type: cat.type,
+            frequency: cat.frequency,
+            description: cat.description || ''
+          };
+
+          if (cat._id) {
+            formattedCategory._id = cat._id;
+          }
+
+          return formattedCategory;
+        })
+      };
+
+      console.log('Final payload:', JSON.stringify(payload, null, 2));
+
+      const { data } = await axios.put('/api/budget', payload);
+      return data;
+    },
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries('budget');
+        setIsAddingItem(false);
+        setEditingItem(null);
+        setFormData({
+          categoryId: '',
+          name: '',
+          plannedAmount: '',
+          type: 'expense',
+          frequency: 'monthly',
+          description: ''
+        });
+        setError(null);
+      },
+      onError: (error: any) => {
+        console.error('Update error details:', {
+          message: error.message,
+          response: error.response?.data,
+          status: error.response?.status,
+          requestPayload: error.config?.data ? JSON.parse(error.config.data) : undefined
+        });
+        if (error.response?.data?.details) {
+          console.error('Validation details:', error.response.data.details);
+        }
+        setError(error.response?.data?.message || error.message || 'Failed to update budget');
+      }
+    }
+  );
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validate amount is a number
+    const plannedAmount = parseFloat(formData.plannedAmount);
+    if (isNaN(plannedAmount)) {
+      setError('Please enter a valid amount');
+      return;
+    }
+
+    // Validate category is selected
+    if (!formData.categoryId) {
+      setError('Please select a category');
+      return;
+    }
+
+    // Find the selected category
+    const selectedCategory = categories?.find(cat => cat._id === formData.categoryId);
+    if (!selectedCategory) {
+      setError('Invalid category selected');
+      return;
+    }
+
+    console.log('Selected category:', {
+      _id: selectedCategory._id,
+      name: selectedCategory.name,
+      type: selectedCategory.type
+    });
+
+    // Prepare item data
+    const itemData: BudgetItem = {
+      categoryId: selectedCategory._id, // Use the category's _id as categoryId
+      name: selectedCategory.name,
+      plannedAmount,
+      type: selectedCategory.type,
+      frequency: formData.frequency,
+      description: formData.description.trim(),
+      actualAmount: 0
+    };
+
+    if (editingItem?._id) {
+      itemData._id = editingItem._id;
+    }
+
+    console.log('New/Updated item data:', itemData);
+
+    // Get existing categories and ensure they have all required fields
+    const existingCategories = (budget?.categories || []).map((cat: BudgetItem) => {
+      // Find the corresponding category for this budget item
+      const category = categories?.find(c => c.name === cat.name && c.type === cat.type);
+      
+      console.log('Mapping existing category:', {
+        name: cat.name,
+        type: cat.type,
+        foundCategory: category ? { id: category._id, name: category.name } : 'not found'
+      });
+
+      // Ensure we preserve the existing categoryId or set it from the category if missing
+      const mappedCategory: BudgetItem = {
+        categoryId: cat.categoryId || (category ? category._id : ''), // Use existing or find matching category
+        name: cat.name,
+        plannedAmount: Number(cat.plannedAmount),
+        actualAmount: Number(cat.actualAmount || 0),
+        type: cat.type,
+        frequency: cat.frequency,
+        description: cat.description || ''
+      };
+
+      if (cat._id) {
+        mappedCategory._id = cat._id;
+      }
+
+      console.log('Mapped category:', mappedCategory);
+      return mappedCategory;
+    });
+
+    // Update the budget with the new/updated item
+    const updatedCategories = editingItem
+      ? existingCategories.map((cat: BudgetItem) => 
+          cat._id === editingItem._id ? itemData : cat
+        )
+      : [...existingCategories, itemData];
+
+    console.log('All categories after update:', updatedCategories.map((cat: BudgetItem) => ({
+      name: cat.name,
+      categoryId: cat.categoryId,
+      _id: cat._id
+    })));
+
+    updateBudget.mutate({
+      categories: updatedCategories
+    });
   };
 
-  // Fetch on mount
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        await Promise.all([
-          fetchCategories(),
-          axios.get('/api/budget').then(({ data }) => setBudget(data))
-        ]);
-      } catch (err: any) {
-        setError(err.response?.data?.message || 'Failed to load budget');
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, []);
+  const handleEdit = (item: BudgetItem) => {
+    setEditingItem(item);
+    setFormData({
+      categoryId: item.categoryId,
+      name: item.name,
+      plannedAmount: item.plannedAmount.toString(),
+      type: item.type,
+      frequency: item.frequency,
+      description: item.description || ''
+    });
+    setIsAddingItem(true);
+  };
 
-  const addCategory = (type: 'income' | 'expense') => {
-    if (!budget) return;
-    const newCategory: Category = {
-      _id: undefined,
+  const handleDelete = (itemToDelete: BudgetItem) => {
+    if (!window.confirm('Are you sure you want to delete this item?')) return;
+
+    const updatedCategories = budget.categories.filter(
+      (item: BudgetItem) => item._id !== itemToDelete._id
+    );
+
+    updateBudget.mutate({
+      ...budget,
+      categories: updatedCategories
+    });
+  };
+
+  const handleCancel = () => {
+    setIsAddingItem(false);
+    setEditingItem(null);
+    setFormData({
+      categoryId: '',
       name: '',
-      plannedAmount: 0,
-      type,
-      frequency: 'monthly'
-    };
-    setBudget({ ...budget, categories: [...budget.categories, newCategory] });
+      plannedAmount: '',
+      type: 'expense',
+      frequency: 'monthly',
+      description: ''
+    });
   };
 
-  const updateCategory = (index: number, field: keyof Category, value: any) => {
-    if (!budget) return;
-    const updated = [...budget.categories];
-    (updated[index] as any)[field] = value;
-    setBudget({ ...budget, categories: updated });
-  };
-
-  const removeCategory = (index: number) => {
-    if (!budget) return;
-    const updated = budget.categories.filter((_, i) => i !== index);
-    setBudget({ ...budget, categories: updated });
-  };
-
-  const handleSave = async () => {
-    if (!budget) return;
-    setSaving(true);
-    setError('');
-    try {
-      const { data } = await axios.put('/api/budget', budget);
-      setBudget(data);
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to save budget');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (loading || !budget) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
@@ -131,21 +288,27 @@ const BudgetPage: React.FC = () => {
     );
   }
 
-  const incomeCategories = categories.filter(cat => cat.type === 'income');
-  const expenseCategories = categories.filter(cat => cat.type === 'expense');
+  const budgetItems = budget?.categories || [];
+  const incomeItems = budgetItems.filter((item: BudgetItem) => item.type === 'income');
+  const expenseItems = budgetItems.filter((item: BudgetItem) => item.type === 'expense');
+  const totalIncome = incomeItems.reduce((sum: number, item: BudgetItem) => sum + item.plannedAmount, 0);
+  const totalExpenses = expenseItems.reduce((sum: number, item: BudgetItem) => sum + item.plannedAmount, 0);
+  const netIncome = totalIncome - totalExpenses;
+
+  // Filter categories based on selected type
+  const availableCategories = categories?.filter(cat => cat.type === formData.type) || [];
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto">
+    <div className="space-y-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-900">My Budget</h1>
-        {categories.length === 0 && (
+        <h1 className="text-3xl font-bold text-gray-900">Budget</h1>
+        {!isAddingItem && (
           <button
-            onClick={initializeCategories}
-            disabled={initializingCategories}
+            onClick={() => setIsAddingItem(true)}
             className="btn btn-primary flex items-center space-x-2"
           >
-            <RefreshCw className="h-4 w-4" />
-            <span>{initializingCategories ? 'Initializing...' : 'Initialize Categories'}</span>
+            <Plus className="h-4 w-4" />
+            <span>Add Item</span>
           </button>
         )}
       </div>
@@ -156,169 +319,223 @@ const BudgetPage: React.FC = () => {
         </div>
       )}
 
+      {/* Add/Edit Form */}
+      {isAddingItem && (
+        <form onSubmit={handleSubmit} className="card space-y-4">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-lg font-semibold text-gray-900">
+              {editingItem ? 'Edit Budget Item' : 'Add Budget Item'}
+            </h2>
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="label">Type</label>
+              <select
+                className="input w-full"
+                value={formData.type}
+                onChange={(e) => setFormData(prev => ({ 
+                  ...prev, 
+                  type: e.target.value as 'income' | 'expense',
+                  categoryId: '' // Reset category when type changes
+                }))}
+              >
+                <option value="income">Income</option>
+                <option value="expense">Expense</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="label">Category</label>
+              <select
+                className="input w-full"
+                value={formData.categoryId}
+                onChange={(e) => setFormData(prev => ({ ...prev, categoryId: e.target.value }))}
+                required
+              >
+                <option value="">Select a category</option>
+                {availableCategories.map(category => (
+                  <option key={category._id} value={category._id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="label">Frequency</label>
+              <select
+                className="input w-full"
+                value={formData.frequency}
+                onChange={(e) => setFormData(prev => ({ ...prev, frequency: e.target.value as any }))}
+              >
+                <option value="monthly">Monthly</option>
+                <option value="fortnightly">Fortnightly</option>
+                <option value="weekly">Weekly</option>
+                <option value="yearly">Yearly</option>
+                <option value="once">One-time</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="label">Amount</label>
+              <div className="relative">
+                <span className="absolute left-3 top-2.5 text-gray-500">$</span>
+                <input
+                  type="number"
+                  className="input w-full pl-8"
+                  placeholder="0.00"
+                  value={formData.plannedAmount}
+                  onChange={(e) => setFormData(prev => ({ ...prev, plannedAmount: e.target.value }))}
+                  required
+                  step="0.01"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="label">Description (Optional)</label>
+            <input
+              type="text"
+              className="input w-full"
+              placeholder="Add any notes or details"
+              value={formData.description}
+              onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+            />
+          </div>
+
+          <div className="flex justify-end space-x-3">
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="btn btn-secondary"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary"
+            >
+              {editingItem ? 'Update' : 'Add'} {formData.type === 'income' ? 'Income' : 'Expense'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Budget Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="card bg-success-50">
+          <h3 className="text-sm font-medium text-success-600">Total Income</h3>
+          <p className="text-2xl font-bold text-success-700">${totalIncome.toLocaleString()}</p>
+        </div>
+        <div className="card bg-danger-50">
+          <h3 className="text-sm font-medium text-danger-600">Total Expenses</h3>
+          <p className="text-2xl font-bold text-danger-700">${totalExpenses.toLocaleString()}</p>
+        </div>
+        <div className="card bg-primary-50">
+          <h3 className="text-sm font-medium text-primary-600">Net Income</h3>
+          <p className={`text-2xl font-bold ${netIncome >= 0 ? 'text-success-700' : 'text-danger-700'}`}>
+            {netIncome >= 0 ? '+' : ''}{netIncome.toLocaleString()}
+          </p>
+        </div>
+      </div>
+
+      {/* Budget Items List */}
       <div className="space-y-6">
-        {/* Income Categories */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">Income Categories</h2>
-            <button
-              type="button"
-              onClick={() => addCategory('income')}
-              className="btn btn-success flex items-center space-x-2"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Add Income</span>
-            </button>
-          </div>
-          <div className="space-y-4">
-            {budget.categories
-              .filter(cat => cat.type === 'income')
-              .map((cat, idx) => {
-                const categoryIndex = budget.categories.indexOf(cat);
-                return (
-                  <div key={idx} className="space-y-3">
-                    <div className="flex items-center space-x-3">
-                      <select
-                        className="input w-48"
-                        value={cat.name}
-                        onChange={(e) => updateCategory(categoryIndex, 'name', e.target.value)}
-                      >
-                        <option value="">Select Category</option>
-                        {categories
-                          .filter(c => c.type === 'income')
-                          .map(c => (
-                            <option key={c._id} value={c.name}>{c.name}</option>
-                          ))
-                        }
-                      </select>
-                      <select
-                        className="input w-36"
-                        value={cat.frequency}
-                        onChange={(e) => updateCategory(categoryIndex, 'frequency', e.target.value)}
-                      >
-                        <option value="monthly">Monthly</option>
-                        <option value="fortnightly">Fortnightly</option>
-                        <option value="weekly">Weekly</option>
-                        <option value="yearly">Yearly</option>
-                        <option value="once">Once</option>
-                      </select>
-                      <div className="relative">
-                        <span className="absolute left-3 top-2.5 text-gray-500">$</span>
-                        <input
-                          type="number"
-                          className="input w-32 pl-8"
-                          placeholder="0.00"
-                          value={cat.plannedAmount}
-                          onChange={(e) => updateCategory(categoryIndex, 'plannedAmount', parseFloat(e.target.value) || 0)}
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeCategory(categoryIndex)}
-                        className="p-2 text-gray-400 hover:text-red-600"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                    <input
-                      type="text"
-                      className="input w-full text-sm"
-                      placeholder="Description (e.g., Monthly salary from Company X)"
-                      value={cat.description || ''}
-                      onChange={(e) => updateCategory(categoryIndex, 'description', e.target.value)}
-                    />
+        {/* Income Items */}
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Income</h2>
+          <div className="space-y-3">
+            {incomeItems.map((item: BudgetItem) => (
+              <div
+                key={item._id}
+                className="flex items-center justify-between p-4 bg-white rounded-lg shadow hover:shadow-md transition-shadow"
+              >
+                <div className="flex-1">
+                  <div className="flex items-center space-x-3">
+                    <span className="font-medium text-gray-900">{item.name}</span>
+                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-success-100 text-success-800">
+                      {item.frequency}
+                    </span>
                   </div>
-                );
-              })}
+                  {item.description && (
+                    <p className="text-sm text-gray-600 mt-1">{item.description}</p>
+                  )}
+                </div>
+                <div className="flex items-center space-x-4">
+                  <span className="font-bold text-success-600">
+                    +${item.plannedAmount.toLocaleString()}
+                  </span>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => handleEdit(item)}
+                      className="p-1 text-gray-400 hover:text-primary-600"
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(item)}
+                      className="p-1 text-gray-400 hover:text-red-600"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Expense Categories */}
-        <div className="card">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">Expense Categories</h2>
-            <button
-              type="button"
-              onClick={() => addCategory('expense')}
-              className="btn btn-danger flex items-center space-x-2"
-            >
-              <Plus className="h-4 w-4" />
-              <span>Add Expense</span>
-            </button>
-          </div>
-          <div className="space-y-4">
-            {budget.categories
-              .filter(cat => cat.type === 'expense')
-              .map((cat, idx) => {
-                const categoryIndex = budget.categories.indexOf(cat);
-                return (
-                  <div key={idx} className="space-y-3">
-                    <div className="flex items-center space-x-3">
-                      <select
-                        className="input w-48"
-                        value={cat.name}
-                        onChange={(e) => updateCategory(categoryIndex, 'name', e.target.value)}
-                      >
-                        <option value="">Select Category</option>
-                        {categories
-                          .filter(c => c.type === 'expense')
-                          .map(c => (
-                            <option key={c._id} value={c.name}>{c.name}</option>
-                          ))
-                        }
-                      </select>
-                      <select
-                        className="input w-36"
-                        value={cat.frequency}
-                        onChange={(e) => updateCategory(categoryIndex, 'frequency', e.target.value)}
-                      >
-                        <option value="monthly">Monthly</option>
-                        <option value="fortnightly">Fortnightly</option>
-                        <option value="weekly">Weekly</option>
-                        <option value="yearly">Yearly</option>
-                        <option value="once">Once</option>
-                      </select>
-                      <div className="relative">
-                        <span className="absolute left-3 top-2.5 text-gray-500">$</span>
-                        <input
-                          type="number"
-                          className="input w-32 pl-8"
-                          placeholder="0.00"
-                          value={cat.plannedAmount}
-                          onChange={(e) => updateCategory(categoryIndex, 'plannedAmount', parseFloat(e.target.value) || 0)}
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeCategory(categoryIndex)}
-                        className="p-2 text-gray-400 hover:text-red-600"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                    <input
-                      type="text"
-                      className="input w-full text-sm"
-                      placeholder="Description (e.g., Monthly train pass for commuting)"
-                      value={cat.description || ''}
-                      onChange={(e) => updateCategory(categoryIndex, 'description', e.target.value)}
-                    />
+        {/* Expense Items */}
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">Expenses</h2>
+          <div className="space-y-3">
+            {expenseItems.map((item: BudgetItem) => (
+              <div
+                key={item._id}
+                className="flex items-center justify-between p-4 bg-white rounded-lg shadow hover:shadow-md transition-shadow"
+              >
+                <div className="flex-1">
+                  <div className="flex items-center space-x-3">
+                    <span className="font-medium text-gray-900">{item.name}</span>
+                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-danger-100 text-danger-800">
+                      {item.frequency}
+                    </span>
                   </div>
-                );
-              })}
+                  {item.description && (
+                    <p className="text-sm text-gray-600 mt-1">{item.description}</p>
+                  )}
+                </div>
+                <div className="flex items-center space-x-4">
+                  <span className="font-bold text-danger-600">
+                    -${item.plannedAmount.toLocaleString()}
+                  </span>
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => handleEdit(item)}
+                      className="p-1 text-gray-400 hover:text-primary-600"
+                    >
+                      <Edit2 className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(item)}
+                      className="p-1 text-gray-400 hover:text-red-600"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
-
-        {/* Save Button */}
-        <div className="flex justify-end">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="btn btn-primary flex items-center space-x-2"
-          >
-            <Save className="h-4 w-4" />
-            <span>{saving ? 'Saving...' : 'Save Budget'}</span>
-          </button>
         </div>
       </div>
     </div>

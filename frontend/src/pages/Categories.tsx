@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import axios from 'axios';
 import { Plus, Edit2, Trash2, Save, X } from 'lucide-react';
 
@@ -10,11 +10,61 @@ interface Category {
   sortOrder: number;
 }
 
-interface CategoryForm {
-  name: string;
-  type: 'income' | 'expense';
-  sortOrder: number;
+interface CategoryFormProps {
+  initialData?: {
+    name: string;
+    type: 'income' | 'expense';
+    sortOrder: number;
+  };
+  onSubmit: (data: { name: string; type: 'income' | 'expense'; sortOrder: number; }) => Promise<void>;
+  onCancel: () => void;
 }
+
+// Separate CategoryForm component with its own state management
+const CategoryForm = memo(({ initialData, onSubmit, onCancel }: CategoryFormProps) => {
+  const [formData, setFormData] = useState({
+    name: initialData?.name || '',
+    type: initialData?.type || 'expense',
+    sortOrder: initialData?.sortOrder || 0
+  });
+
+  const handleSubmit = async () => {
+    await onSubmit(formData);
+  };
+
+  return (
+    <div className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg">
+      <select
+        className="input w-32"
+        value={formData.type}
+        onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value as 'income' | 'expense' }))}
+      >
+        <option value="income">Income</option>
+        <option value="expense">Expense</option>
+      </select>
+      <input
+        type="text"
+        className="input flex-1"
+        placeholder="Category name"
+        value={formData.name}
+        onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+      />
+      <input
+        type="number"
+        className="input w-24"
+        placeholder="Order"
+        value={formData.sortOrder}
+        onChange={(e) => setFormData(prev => ({ ...prev, sortOrder: parseInt(e.target.value) || 0 }))}
+      />
+      <button onClick={handleSubmit} className="btn btn-primary p-2">
+        <Save className="h-4 w-4" />
+      </button>
+      <button onClick={onCancel} className="btn btn-ghost p-2">
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+});
 
 const Categories: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -22,11 +72,6 @@ const Categories: React.FC = () => {
   const [error, setError] = useState('');
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [formData, setFormData] = useState<CategoryForm>({
-    name: '',
-    type: 'expense',
-    sortOrder: 0
-  });
 
   // Initialize categories if they don't exist
   const initializeCategories = async () => {
@@ -64,23 +109,21 @@ const Categories: React.FC = () => {
     fetchCategories();
   }, []);
 
-  const handleAdd = async () => {
+  const handleAdd = async (formData: { name: string; type: 'income' | 'expense'; sortOrder: number; }) => {
     try {
       await axios.post('/api/categories', formData);
       await fetchCategories();
       setShowAddForm(false);
-      setFormData({ name: '', type: 'expense', sortOrder: 0 });
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to add category');
     }
   };
 
-  const handleUpdate = async (id: string) => {
+  const handleUpdate = async (id: string, formData: { name: string; type: 'income' | 'expense'; sortOrder: number; }) => {
     try {
       await axios.put(`/api/categories/${id}`, formData);
       await fetchCategories();
       setEditingCategory(null);
-      setFormData({ name: '', type: 'expense', sortOrder: 0 });
     } catch (err: any) {
       setError(err.response?.data?.message || 'Failed to update category');
     }
@@ -97,65 +140,7 @@ const Categories: React.FC = () => {
     }
   };
 
-  const startEdit = (category: Category) => {
-    setEditingCategory(category._id);
-    setFormData({
-      name: category.name,
-      type: category.type,
-      sortOrder: category.sortOrder
-    });
-  };
-
-  const cancelEdit = () => {
-    setEditingCategory(null);
-    setFormData({ name: '', type: 'expense', sortOrder: 0 });
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
-      </div>
-    );
-  }
-
-  const incomeCategories = categories.filter(cat => cat.type === 'income');
-  const expenseCategories = categories.filter(cat => cat.type === 'expense');
-
-  const CategoryForm = ({ onSubmit, onCancel }: { onSubmit: () => void, onCancel: () => void }) => (
-    <div className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg">
-      <select
-        className="input w-32"
-        value={formData.type}
-        onChange={(e) => setFormData({ ...formData, type: e.target.value as 'income' | 'expense' })}
-      >
-        <option value="income">Income</option>
-        <option value="expense">Expense</option>
-      </select>
-      <input
-        type="text"
-        className="input flex-1"
-        placeholder="Category name"
-        value={formData.name}
-        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-      />
-      <input
-        type="number"
-        className="input w-24"
-        placeholder="Order"
-        value={formData.sortOrder}
-        onChange={(e) => setFormData({ ...formData, sortOrder: parseInt(e.target.value) || 0 })}
-      />
-      <button onClick={onSubmit} className="btn btn-primary p-2">
-        <Save className="h-4 w-4" />
-      </button>
-      <button onClick={onCancel} className="btn btn-ghost p-2">
-        <X className="h-4 w-4" />
-      </button>
-    </div>
-  );
-
-  const CategoryItem = ({ category }: { category: Category }) => (
+  const CategoryItem = memo(({ category }: { category: Category }) => (
     <div className="flex items-center justify-between p-4 bg-white rounded-lg shadow">
       <div className="flex items-center space-x-3">
         <span className={`px-2 py-1 rounded text-sm ${
@@ -171,7 +156,7 @@ const Categories: React.FC = () => {
       {!category.isDefault && (
         <div className="flex items-center space-x-2">
           <button
-            onClick={() => startEdit(category)}
+            onClick={() => setEditingCategory(category._id)}
             className="p-2 text-gray-400 hover:text-primary-600"
           >
             <Edit2 className="h-4 w-4" />
@@ -185,7 +170,18 @@ const Categories: React.FC = () => {
         </div>
       )}
     </div>
-  );
+  ));
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600"></div>
+      </div>
+    );
+  }
+
+  const incomeCategories = categories.filter(cat => cat.type === 'income');
+  const expenseCategories = categories.filter(cat => cat.type === 'expense');
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto">
@@ -209,10 +205,7 @@ const Categories: React.FC = () => {
       {showAddForm && (
         <CategoryForm
           onSubmit={handleAdd}
-          onCancel={() => {
-            setShowAddForm(false);
-            setFormData({ name: '', type: 'expense', sortOrder: 0 });
-          }}
+          onCancel={() => setShowAddForm(false)}
         />
       )}
 
@@ -225,8 +218,13 @@ const Categories: React.FC = () => {
               <div key={category._id}>
                 {editingCategory === category._id ? (
                   <CategoryForm
-                    onSubmit={() => handleUpdate(category._id)}
-                    onCancel={cancelEdit}
+                    initialData={{
+                      name: category.name,
+                      type: category.type,
+                      sortOrder: category.sortOrder
+                    }}
+                    onSubmit={(formData) => handleUpdate(category._id, formData)}
+                    onCancel={() => setEditingCategory(null)}
                   />
                 ) : (
                   <CategoryItem category={category} />
@@ -244,8 +242,13 @@ const Categories: React.FC = () => {
               <div key={category._id}>
                 {editingCategory === category._id ? (
                   <CategoryForm
-                    onSubmit={() => handleUpdate(category._id)}
-                    onCancel={cancelEdit}
+                    initialData={{
+                      name: category.name,
+                      type: category.type,
+                      sortOrder: category.sortOrder
+                    }}
+                    onSubmit={(formData) => handleUpdate(category._id, formData)}
+                    onCancel={() => setEditingCategory(null)}
                   />
                 ) : (
                   <CategoryItem category={category} />
