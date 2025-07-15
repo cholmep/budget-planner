@@ -16,6 +16,8 @@ export interface IAsset extends Document {
   balanceHistory: IAssetBalance[];
   currentBalance: number;
   lastUpdated: Date;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 const AssetBalanceSchema = new Schema({

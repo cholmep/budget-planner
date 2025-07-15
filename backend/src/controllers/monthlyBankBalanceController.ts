@@ -51,6 +51,8 @@ const upsertForUser = async (req: AuthenticatedRequest, res: Response) => {
 const getMonthlyAggregates = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const userId = req.userId;
+    console.log('Getting monthly aggregates for user:', userId);
+    
     // Aggregate transactions by year and month
     const aggregates = await Transaction.aggregate([
       { $match: { userId: new (require('mongoose').Types.ObjectId)(userId) } },
@@ -81,25 +83,41 @@ const getMonthlyAggregates = async (req: AuthenticatedRequest, res: Response) =>
       { $sort: { year: 1, month: 1 } }
     ]);
 
+    console.log('Transaction aggregates:', aggregates);
+
     // Get manual balances for all months
     const balances = await MonthlyBankBalance.find({ userId });
+    console.log('Monthly balances:', balances);
+
     const balanceMap = new Map();
     balances.forEach(b => {
-      balanceMap.set(`${b.year}-${b.month}`, b.balance);
+      const key = `${b.year}-${String(b.month).padStart(2, '0')}`;
+      balanceMap.set(key, b.balance);
+      console.log(`Setting balance for ${key}:`, b.balance);
     });
 
     // Merge aggregates and balances
-    const result = aggregates.map(a => ({
-      year: a.year,
-      month: a.month,
-      income: a.income,
-      expenses: a.expenses,
-      savings: a.income - a.expenses,
-      balance: balanceMap.get(`${a.year}-${a.month}`) ?? null
-    }));
+    const result = aggregates.map(a => {
+      const period = `${a.year}-${String(a.month).padStart(2, '0')}`;
+      const balance = balanceMap.get(period);
+      console.log(`Processing period ${period}:`, {
+        income: a.income,
+        expenses: a.expenses,
+        balance: balance
+      });
+      
+      return {
+        period,
+        income: a.income,
+        expenses: a.expenses,
+        balance: balance ?? null
+      };
+    });
 
+    console.log('Final result:', result);
     res.json(result);
   } catch (error) {
+    console.error('Monthly aggregates error:', error);
     res.status(500).json({ message: 'Server error', error });
   }
 };

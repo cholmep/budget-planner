@@ -61,12 +61,64 @@ const connectDB = async () => {
   }
 };
 
-// Start server
-const startServer = async () => {
-  await connectDB();
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+// Graceful shutdown handler
+const gracefulShutdown = (server: any) => {
+  console.log('Received shutdown signal. Starting graceful shutdown...');
+  
+  server.close(async () => {
+    console.log('HTTP server closed.');
+    try {
+      await mongoose.connection.close();
+      console.log('MongoDB connection closed.');
+      process.exit(0);
+    } catch (err) {
+      console.error('Error during shutdown:', err);
+      process.exit(1);
+    }
   });
+
+  // Force shutdown after 10 seconds
+  setTimeout(() => {
+    console.error('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 10000);
+};
+
+// Start server with retry logic
+const startServer = async (retries = 3) => {
+  try {
+    await connectDB();
+    
+    const server = app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+
+    // Handle graceful shutdown
+    process.on('SIGTERM', () => gracefulShutdown(server));
+    process.on('SIGINT', () => gracefulShutdown(server));
+
+    server.on('error', (error: any) => {
+      if (error.code === 'EADDRINUSE') {
+        console.log(`Port ${PORT} is busy, retrying...`);
+        if (retries > 0) {
+          setTimeout(() => {
+            server.close();
+            startServer(retries - 1);
+          }, 1000);
+        } else {
+          console.error(`Could not start server after ${retries} retries`);
+          process.exit(1);
+        }
+      } else {
+        console.error('Server error:', error);
+        process.exit(1);
+      }
+    });
+
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
 };
 
 startServer();
