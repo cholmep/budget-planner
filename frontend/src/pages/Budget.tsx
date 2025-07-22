@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import axios from 'axios';
-import { Plus, Trash2, Save, RefreshCw, Edit2, X } from 'lucide-react';
+import { Plus, Trash2, Save, RefreshCw, Edit2, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 
 interface Category {
@@ -30,6 +30,201 @@ interface FormData {
   frequency: 'monthly' | 'fortnightly' | 'weekly' | 'yearly' | 'once';
   description: string;
 }
+
+interface CategorySummary {
+  name: string;
+  monthlyAmount: number;
+  annualAmount: number;
+  items: BudgetItem[];
+}
+
+const calculateMonthlyAmount = (item: BudgetItem): number => {
+  switch (item.frequency) {
+    case 'monthly':
+      return item.plannedAmount;
+    case 'fortnightly':
+      return (item.plannedAmount * 26) / 12;
+    case 'weekly':
+      return (item.plannedAmount * 52) / 12;
+    case 'yearly':
+      return item.plannedAmount / 12;
+    case 'once':
+      return item.plannedAmount / 12;
+    default:
+      return 0;
+  }
+};
+
+const calculateAnnualAmount = (item: BudgetItem): number => {
+  switch (item.frequency) {
+    case 'monthly':
+      return item.plannedAmount * 12;
+    case 'fortnightly':
+      return item.plannedAmount * 26;
+    case 'weekly':
+      return item.plannedAmount * 52;
+    case 'yearly':
+      return item.plannedAmount;
+    case 'once':
+      return item.plannedAmount;
+    default:
+      return 0;
+  }
+};
+
+const BudgetSummary: React.FC<{ budgetItems: BudgetItem[], categories: Category[] | undefined }> = ({ budgetItems, categories }) => {
+  const [showDetails, setShowDetails] = useState(false);
+
+  // Group items by category and calculate totals
+  const categorySummaries = categories?.reduce((acc: { [key: string]: CategorySummary }, category) => {
+    const items = budgetItems.filter(item => item.categoryId === category._id);
+    if (items.length === 0) return acc;
+
+    const monthlyAmount = items.reduce((sum, item) => sum + calculateMonthlyAmount(item), 0);
+    const annualAmount = items.reduce((sum, item) => sum + calculateAnnualAmount(item), 0);
+
+    acc[category._id] = {
+      name: category.name,
+      monthlyAmount,
+      annualAmount,
+      items
+    };
+    return acc;
+  }, {}) || {};
+
+  const incomeSummaries = Object.values(categorySummaries).filter(
+    summary => budgetItems.find(item => item.name === summary.name)?.type === 'income'
+  );
+  const expenseSummaries = Object.values(categorySummaries).filter(
+    summary => budgetItems.find(item => item.name === summary.name)?.type === 'expense'
+  );
+
+  const totalMonthlyIncome = incomeSummaries.reduce((sum, cat) => sum + cat.monthlyAmount, 0);
+  const totalMonthlyExpenses = expenseSummaries.reduce((sum, cat) => sum + cat.monthlyAmount, 0);
+  const totalAnnualIncome = incomeSummaries.reduce((sum, cat) => sum + cat.annualAmount, 0);
+  const totalAnnualExpenses = expenseSummaries.reduce((sum, cat) => sum + cat.annualAmount, 0);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold text-gray-900">Budget Summary</h2>
+        <button
+          onClick={() => setShowDetails(!showDetails)}
+          className="flex items-center text-sm text-gray-600 hover:text-gray-900"
+        >
+          {showDetails ? (
+            <>
+              <ChevronUp className="h-4 w-4 mr-1" />
+              Hide Details
+            </>
+          ) : (
+            <>
+              <ChevronDown className="h-4 w-4 mr-1" />
+              Show Details
+            </>
+          )}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Monthly Summary */}
+        <div className="card">
+          <h3 className="text-lg font-semibold mb-4">Monthly Summary</h3>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center text-success-600">
+              <span>Total Income</span>
+              <span className="font-bold">${totalMonthlyIncome.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between items-center text-danger-600">
+              <span>Total Expenses</span>
+              <span className="font-bold">${totalMonthlyExpenses.toLocaleString()}</span>
+            </div>
+            <div className="border-t pt-2">
+              <div className="flex justify-between items-center font-bold">
+                <span>Net Monthly</span>
+                <span className={totalMonthlyIncome - totalMonthlyExpenses >= 0 ? 'text-success-600' : 'text-danger-600'}>
+                  ${(totalMonthlyIncome - totalMonthlyExpenses).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Annual Summary */}
+        <div className="card">
+          <h3 className="text-lg font-semibold mb-4">Annual Summary</h3>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center text-success-600">
+              <span>Total Income</span>
+              <span className="font-bold">${totalAnnualIncome.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between items-center text-danger-600">
+              <span>Total Expenses</span>
+              <span className="font-bold">${totalAnnualExpenses.toLocaleString()}</span>
+            </div>
+            <div className="border-t pt-2">
+              <div className="flex justify-between items-center font-bold">
+                <span>Net Annual</span>
+                <span className={totalAnnualIncome - totalAnnualExpenses >= 0 ? 'text-success-600' : 'text-danger-600'}>
+                  ${(totalAnnualIncome - totalAnnualExpenses).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Detailed Category Breakdown */}
+      {showDetails && (
+        <div className="space-y-6 mt-6">
+          {/* Income Categories */}
+          <div>
+            <h3 className="text-lg font-semibold mb-4">Income by Category</h3>
+            <div className="space-y-3">
+              {incomeSummaries.map(summary => (
+                <div key={summary.name} className="card">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium">{summary.name}</span>
+                    <div className="text-right">
+                      <div className="text-success-600">
+                        Monthly: ${summary.monthlyAmount.toLocaleString()}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        Annual: ${summary.annualAmount.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Expense Categories */}
+          <div>
+            <h3 className="text-lg font-semibold mb-4">Expenses by Category</h3>
+            <div className="space-y-3">
+              {expenseSummaries.map(summary => (
+                <div key={summary.name} className="card">
+                  <div className="flex justify-between items-center">
+                    <span className="font-medium">{summary.name}</span>
+                    <div className="text-right">
+                      <div className="text-danger-600">
+                        Monthly: ${summary.monthlyAmount.toLocaleString()}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        Annual: ${summary.annualAmount.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const BudgetPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -430,23 +625,8 @@ const BudgetPage: React.FC = () => {
         </form>
       )}
 
-      {/* Budget Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="card bg-success-50">
-          <h3 className="text-sm font-medium text-success-600">Total Income</h3>
-          <p className="text-2xl font-bold text-success-700">${totalIncome.toLocaleString()}</p>
-        </div>
-        <div className="card bg-danger-50">
-          <h3 className="text-sm font-medium text-danger-600">Total Expenses</h3>
-          <p className="text-2xl font-bold text-danger-700">${totalExpenses.toLocaleString()}</p>
-        </div>
-        <div className="card bg-primary-50">
-          <h3 className="text-sm font-medium text-primary-600">Net Income</h3>
-          <p className={`text-2xl font-bold ${netIncome >= 0 ? 'text-success-700' : 'text-danger-700'}`}>
-            {netIncome >= 0 ? '+' : ''}{netIncome.toLocaleString()}
-          </p>
-        </div>
-      </div>
+      {/* New Budget Summary Component */}
+      <BudgetSummary budgetItems={budgetItems} categories={categories} />
 
       {/* Budget Items List */}
       <div className="space-y-6">
