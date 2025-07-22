@@ -34,19 +34,38 @@ const asyncHandler = (fn: (req: AuthRequest, res: Response) => Promise<any>) => 
 router.get('/monthly', authMiddleware, asyncHandler(async (req: AuthRequest, res: Response) => {
   const { month, year } = req.query;
   
-  // Convert month/year to date range
-  const startDate = new Date(Number(year), Number(month) - 1, 1);
-  const endDate = new Date(Number(year), Number(month), 0); // Last day of month
+  if (!month || !year) {
+    return res.status(400).json({ message: 'Month and year are required' });
+  }
 
-  const transactions = await Transaction.find({
-    userId: req.user._id,
-    date: {
-      $gte: startDate,
-      $lte: endDate
-    }
-  }).sort({ date: -1 });
+  try {
+    // Convert month/year to date range with timezone handling
+    const startDate = new Date(Date.UTC(Number(year), Number(month) - 1, 1, 0, 0, 0));
+    const endDate = new Date(Date.UTC(Number(year), Number(month), 0, 23, 59, 59, 999));
 
-  res.json({ transactions });
+    console.log('Fetching transactions with params:', {
+      userId: req.user?._id,
+      startDate,
+      endDate,
+      month,
+      year
+    });
+
+    const transactions = await Transaction.find({
+      userId: req.user._id,
+      date: {
+        $gte: startDate,
+        $lte: endDate
+      }
+    }).sort({ date: -1 });
+
+    console.log('Found transactions:', transactions);
+
+    res.json({ transactions });
+  } catch (error: any) {
+    console.error('Error fetching monthly transactions:', error);
+    res.status(500).json({ message: 'Error fetching transactions', error: error.message });
+  }
 }));
 
 // Create transaction

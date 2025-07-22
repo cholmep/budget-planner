@@ -1,8 +1,18 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
-import { format, parseISO } from 'date-fns';
-import { PlusCircle, Edit2, Trash2, RefreshCw } from 'lucide-react';
+import { format, parseISO, addMonths, subMonths } from 'date-fns';
+import { PlusCircle, Edit2, Trash2, RefreshCw, ChevronLeft, ChevronRight, X, TrendingUp, TrendingDown } from 'lucide-react';
 import axios from 'axios';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  Cell, ReferenceLine
+} from 'recharts';
+
+// Add axios interceptor for auth token
+const token = localStorage.getItem('token');
+if (token) {
+  axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+}
 
 interface Category {
   _id: string;
@@ -32,7 +42,15 @@ interface FormData {
   frequency: 'weekly' | 'monthly' | 'yearly';
 }
 
-interface CategorySummary {
+interface CategorySummaryBase {
+  name: string;
+  total: number;
+  count: number;
+  budgeted: number;
+  variance: number;
+}
+
+interface CategorySummaryResponse {
   _id: {
     category: string;
     type: string;
@@ -43,12 +61,27 @@ interface CategorySummary {
 
 interface MonthlyData {
   transactions: Transaction[];
-  summary: CategorySummary[];
+  summary: CategorySummaryResponse[];
   recurringTransactions: Transaction[];
   period: {
     month: number;
     year: number;
   };
+}
+
+interface BudgetCategory {
+  name: string;
+  plannedAmount: number;
+  actualAmount: number;
+  type: 'income' | 'expense';
+  frequency: 'monthly' | 'fortnightly' | 'weekly' | 'yearly' | 'once';
+}
+
+interface Budget {
+  categories: BudgetCategory[];
+  totalIncome: number;
+  totalExpenses: number;
+  netIncome: number;
 }
 
 const MonthlyExpenses: React.FC = () => {
@@ -85,44 +118,53 @@ const MonthlyExpenses: React.FC = () => {
       const month = selectedMonth.getMonth() + 1;
       const year = selectedMonth.getFullYear();
       
-      // Fetch both bank aggregates and manual transactions
-      const [bankData, manualData] = await Promise.all([
-        axios.get('/api/bank/monthly-aggregates'),
-        axios.get(`/api/transactions/monthly?month=${month}&year=${year}`).catch(() => ({ data: { transactions: [] } }))
-      ]);
+      console.log('Fetching monthly data for:', { month, year });
 
-      // Find the bank data for the selected month
-      const monthBankData = bankData.data.find((m: any) => m.month === month && m.year === year) || {
-        income: 0,
-        expenses: 0,
-        savings: 0,
-        balance: 0
-      };
+      try {
+        // Fetch both bank aggregates and manual transactions
+        const [bankData, manualData] = await Promise.all([
+          axios.get('/api/bank/monthly-aggregates'),
+          axios.get(`/api/transactions/monthly?month=${month}&year=${year}`)
+        ]);
 
-      // Combine bank and manual transaction summaries
-      const summary = [
-        {
-          _id: { category: 'Total Income', type: 'income' },
-          total: monthBankData.income + manualData.data.transactions
-            .filter((t: Transaction) => t.type === 'income')
-            .reduce((sum: number, t: Transaction) => sum + t.amount, 0),
-          count: manualData.data.transactions.filter((t: Transaction) => t.type === 'income').length + 1
-        },
-        {
-          _id: { category: 'Total Expenses', type: 'expense' },
-          total: monthBankData.expenses + manualData.data.transactions
-            .filter((t: Transaction) => t.type === 'expense')
-            .reduce((sum: number, t: Transaction) => sum + t.amount, 0),
-          count: manualData.data.transactions.filter((t: Transaction) => t.type === 'expense').length + 1
-        }
-      ];
+        console.log('Received manual transactions:', manualData.data);
 
-      return {
-        transactions: manualData.data.transactions || [],
-        summary,
-        recurringTransactions: [],
-        period: { month, year }
-      };
+        // Find the bank data for the selected month
+        const monthBankData = bankData.data.find((m: any) => m.month === month && m.year === year) || {
+          income: 0,
+          expenses: 0,
+          savings: 0,
+          balance: 0
+        };
+
+        // Combine bank and manual transaction summaries
+        const summary = [
+          {
+            _id: { category: 'Total Income', type: 'income' },
+            total: monthBankData.income + manualData.data.transactions
+              .filter((t: Transaction) => t.type === 'income')
+              .reduce((sum: number, t: Transaction) => sum + t.amount, 0),
+            count: manualData.data.transactions.filter((t: Transaction) => t.type === 'income').length + 1
+          },
+          {
+            _id: { category: 'Total Expenses', type: 'expense' },
+            total: monthBankData.expenses + manualData.data.transactions
+              .filter((t: Transaction) => t.type === 'expense')
+              .reduce((sum: number, t: Transaction) => sum + t.amount, 0),
+            count: manualData.data.transactions.filter((t: Transaction) => t.type === 'expense').length + 1
+          }
+        ];
+
+        return {
+          transactions: manualData.data.transactions || [],
+          summary,
+          recurringTransactions: [],
+          period: { month, year }
+        };
+      } catch (error) {
+        console.error('Error fetching monthly data:', error);
+        throw error;
+      }
     }
   );
 
@@ -155,6 +197,12 @@ const MonthlyExpenses: React.FC = () => {
     }
   );
 
+  // Fetch budget data
+  const { data: budgetData } = useQuery<Budget>('budget', async () => {
+    const { data } = await axios.get<Budget>('/api/budget');
+    return data;
+  });
+
   // Mutations for manual transactions
   const createTransaction = useMutation(
     async (transaction: Omit<Transaction, '_id'>) => {
@@ -182,19 +230,41 @@ const MonthlyExpenses: React.FC = () => {
     }
   );
 
+  // Update the updateTransaction mutation
   const updateTransaction = useMutation(
     async (transaction: Transaction) => {
-      const { data } = await axios.put(`/api/transactions/${transaction._id}`, transaction);
+      console.log('Updating transaction:', transaction);
+      const payload = {
+        amount: Number(transaction.amount),
+        description: transaction.description.trim(),
+        category: transaction.category,
+        type: transaction.type,
+        date: transaction.date,
+        recurring: transaction.recurring || false,
+        ...(transaction.recurring ? { frequency: transaction.frequency } : {})
+      };
+      console.log('Update payload:', payload);
+      const { data } = await axios.put(`/api/transactions/${transaction._id}`, payload);
       return data;
     },
     {
       onSuccess: () => {
         queryClient.invalidateQueries(['monthlyTransactions']);
         setEditingTransaction(null);
+        setFormData({
+          amount: '',
+          description: '',
+          category: '',
+          type: 'expense',
+          date: format(new Date(), 'yyyy-MM-dd'),
+          recurring: false,
+          frequency: 'monthly'
+        });
         setApiError(null);
       },
       onError: (error: any) => {
-        setApiError(error.response?.data?.message || 'Failed to update transaction');
+        console.error('Update error:', error.response?.data || error);
+        setApiError(error.response?.data?.message || error.message || 'Failed to update transaction');
       }
     }
   );
@@ -216,7 +286,7 @@ const MonthlyExpenses: React.FC = () => {
     // Validate amount is a number
     const amount = parseFloat(formData.amount);
     if (isNaN(amount)) {
-      alert('Please enter a valid amount');
+      setApiError('Please enter a valid amount');
       return;
     }
 
@@ -224,7 +294,7 @@ const MonthlyExpenses: React.FC = () => {
     const transactionData = {
       amount,
       description: formData.description.trim(),
-      category: formData.category.trim(),
+      category: formData.category,
       type: formData.type,
       date: formData.date,
       recurring: formData.recurring,
@@ -249,9 +319,66 @@ const MonthlyExpenses: React.FC = () => {
       category: transaction.category,
       type: transaction.type,
       date: format(parseISO(transaction.date), 'yyyy-MM-dd'),
-      recurring: transaction.recurring,
+      recurring: transaction.recurring || false,
       frequency: transaction.frequency || 'monthly'
     });
+    setIsAddingTransaction(true);
+  };
+
+  // Calculate monthly amount based on frequency
+  const calculateMonthlyAmount = (amount: number, frequency: string): number => {
+    switch (frequency) {
+      case 'weekly':
+        return amount * 52 / 12;
+      case 'fortnightly':
+        return amount * 26 / 12;
+      case 'yearly':
+        return amount / 12;
+      case 'once':
+        return amount / 12;
+      default:
+        return amount;
+    }
+  };
+
+  // Group transactions by category
+  const getCategorySummaries = (transactions: Transaction[], type: 'income' | 'expense'): CategorySummaryBase[] => {
+    const summaryMap = new Map<string, CategorySummaryBase>();
+    
+    // Initialize with budget categories
+    budgetData?.categories
+      .filter(cat => cat.type === type)
+      .forEach(cat => {
+        summaryMap.set(cat.name, {
+          name: cat.name,
+          total: 0,
+          count: 0,
+          budgeted: calculateMonthlyAmount(cat.plannedAmount, cat.frequency),
+          variance: 0
+        });
+      });
+
+    // Add transaction totals
+    transactions
+      .filter(t => t.type === type)
+      .forEach(t => {
+        const existing = summaryMap.get(t.category) || {
+          name: t.category,
+          total: 0,
+          count: 0,
+          budgeted: 0,
+          variance: 0
+        };
+        
+        existing.total += t.amount;
+        existing.count += 1;
+        existing.variance = existing.total - existing.budgeted;
+        
+        summaryMap.set(t.category, existing);
+      });
+
+    return Array.from(summaryMap.values())
+      .sort((a, b) => b.total - a.total);
   };
 
   if (isLoading) return <div className="p-4">Loading...</div>;
@@ -302,13 +429,31 @@ const MonthlyExpenses: React.FC = () => {
       </div>
 
       {/* Month Selection */}
-      <div className="mb-8">
-        <input
-          type="month"
-          value={format(selectedMonth, 'yyyy-MM')}
-          onChange={(e) => setSelectedMonth(new Date(e.target.value))}
-          className="border rounded-lg px-4 py-2"
-        />
+      <div className="mb-8 flex items-center justify-center space-x-4">
+        <button
+          onClick={() => setSelectedMonth(prevMonth => subMonths(prevMonth, 1))}
+          className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+          aria-label="Previous month"
+        >
+          <ChevronLeft className="h-5 w-5 text-gray-600" />
+        </button>
+        
+        <div className="flex items-center bg-white px-4 py-2 rounded-lg shadow">
+          <input
+            type="month"
+            value={format(selectedMonth, 'yyyy-MM')}
+            onChange={(e) => setSelectedMonth(new Date(e.target.value))}
+            className="border-none focus:ring-0 text-center font-medium text-gray-700"
+          />
+        </div>
+
+        <button
+          onClick={() => setSelectedMonth(prevMonth => addMonths(prevMonth, 1))}
+          className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+          aria-label="Next month"
+        >
+          <ChevronRight className="h-5 w-5 text-gray-600" />
+        </button>
       </div>
 
       {/* Summary Cards */}
@@ -331,21 +476,222 @@ const MonthlyExpenses: React.FC = () => {
         ))}
       </div>
 
+      {/* Category Summaries */}
+      <div className="space-y-6 mb-8">
+        {/* Income Categories */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold mb-4 text-gray-900">Income by Category</h3>
+          <div className="space-y-4">
+            {/* Chart */}
+            {monthlyData && (
+              <div className="h-64 mb-6">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={getCategorySummaries(monthlyData.transactions, 'income')}
+                    margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 12 }}
+                      interval={0}
+                      angle={-45}
+                      textAnchor="end"
+                    />
+                    <YAxis
+                      tickFormatter={(value) => `$${value.toLocaleString()}`}
+                    />
+                    <Tooltip
+                      formatter={(value: number) => `$${value.toLocaleString()}`}
+                      labelStyle={{ color: '#111827' }}
+                      contentStyle={{ backgroundColor: 'white', border: '1px solid #E5E7EB' }}
+                    />
+                    <Legend />
+                    <Bar dataKey="total" name="Actual" fill="#4ade80">
+                      {getCategorySummaries(monthlyData.transactions, 'income').map((entry, index) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={entry.total >= entry.budgeted ? '#4ade80' : '#f87171'}
+                        />
+                      ))}
+                    </Bar>
+                    <Bar dataKey="budgeted" name="Budgeted" fill="#94a3b8" />
+                    <ReferenceLine y={0} stroke="#cbd5e1" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            {/* List View */}
+            <div className="mt-6">
+              <div className="grid grid-cols-4 gap-4 mb-2 text-sm font-medium text-gray-500">
+                <div>Category</div>
+                <div className="text-right">Target</div>
+                <div className="text-right">Actual</div>
+                <div className="text-right">Difference</div>
+              </div>
+              <div className="space-y-2">
+                {monthlyData && getCategorySummaries(monthlyData.transactions, 'income').map(category => (
+                  <div key={category.name} className="grid grid-cols-4 gap-4 py-2 border-t border-gray-100">
+                    <div>
+                      <div className="font-medium text-gray-700">{category.name}</div>
+                      <div className="text-xs text-gray-500">{category.count} transactions</div>
+                    </div>
+                    <div className="text-right font-medium text-gray-600">
+                      ${category.budgeted.toLocaleString()}
+                    </div>
+                    <div className="text-right font-medium text-success-600">
+                      ${category.total.toLocaleString()}
+                    </div>
+                    <div className="text-right">
+                      <div className={`font-medium ${category.variance >= 0 ? 'text-success-600' : 'text-danger-600'}`}>
+                        <span className="inline-flex items-center">
+                          {category.variance >= 0 ? (
+                            <TrendingUp className="h-4 w-4 mr-1" />
+                          ) : (
+                            <TrendingDown className="h-4 w-4 mr-1" />
+                          )}
+                          ${Math.abs(category.variance).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Expense Categories */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold mb-4 text-gray-900">Expenses by Category</h3>
+          <div className="space-y-4">
+            {/* Chart */}
+            {monthlyData && (
+              <div className="h-96 mb-12">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={getCategorySummaries(monthlyData.transactions, 'expense')}
+                    margin={{ top: 20, right: 30, left: 20, bottom: 70 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      dataKey="name" 
+                      tick={{ fontSize: 12 }} 
+                      interval={0} 
+                      angle={-45} 
+                      textAnchor="end"
+                      height={80}
+                    />
+                    <YAxis
+                      tickFormatter={(value) => `$${value.toLocaleString()}`}
+                    />
+                    <Tooltip
+                      formatter={(value: number) => `$${value.toLocaleString()}`}
+                      labelStyle={{ color: '#111827' }}
+                      contentStyle={{ backgroundColor: 'white', border: '1px solid #E5E7EB' }}
+                    />
+                    <Legend verticalAlign="top" height={36} />
+                    <Bar dataKey="total" name="Actual" fill="#f87171">
+                      {getCategorySummaries(monthlyData.transactions, 'expense').map((entry, index) => (
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={entry.total <= entry.budgeted ? '#4ade80' : '#f87171'}
+                        />
+                      ))}
+                    </Bar>
+                    <Bar dataKey="budgeted" name="Budgeted" fill="#94a3b8" />
+                    <ReferenceLine y={0} stroke="#cbd5e1" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+            {/* List View */}
+            <div className="mt-6">
+              <div className="grid grid-cols-4 gap-4 mb-2 text-sm font-medium text-gray-500">
+                <div>Category</div>
+                <div className="text-right">Target</div>
+                <div className="text-right">Actual</div>
+                <div className="text-right">Difference</div>
+              </div>
+              <div className="space-y-2">
+                {monthlyData && getCategorySummaries(monthlyData.transactions, 'expense').map(category => (
+                  <div key={category.name} className="grid grid-cols-4 gap-4 py-2 border-t border-gray-100">
+                    <div>
+                      <div className="font-medium text-gray-700">{category.name}</div>
+                      <div className="text-xs text-gray-500">{category.count} transactions</div>
+                    </div>
+                    <div className="text-right font-medium text-gray-600">
+                      ${category.budgeted.toLocaleString()}
+                    </div>
+                    <div className="text-right font-medium text-danger-600">
+                      ${category.total.toLocaleString()}
+                    </div>
+                    <div className="text-right">
+                      <div className={`font-medium ${category.variance <= 0 ? 'text-success-600' : 'text-danger-600'}`}>
+                        <span className="inline-flex items-center">
+                          {category.variance <= 0 ? (
+                            <TrendingDown className="h-4 w-4 mr-1" />
+                          ) : (
+                            <TrendingUp className="h-4 w-4 mr-1" />
+                          )}
+                          ${Math.abs(category.variance).toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Transaction Form */}
       {(isAddingTransaction || editingTransaction) && (
         <form onSubmit={handleSubmit} className="mb-8 bg-white p-6 rounded-lg shadow">
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-semibold text-gray-900">
+              {editingTransaction ? 'Edit Transaction' : 'Add New Transaction'}
+            </h2>
+            <button
+              type="button"
+              onClick={() => {
+                setIsAddingTransaction(false);
+                setEditingTransaction(null);
+                setFormData({
+                  amount: '',
+                  description: '',
+                  category: '',
+                  type: 'expense',
+                  date: format(new Date(), 'yyyy-MM-dd'),
+                  recurring: false,
+                  frequency: 'monthly'
+                });
+              }}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700">Amount</label>
-              <input
-                type="number"
-                step="0.01"
-                value={formData.amount}
-                onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                required
-              />
+              <div className="mt-1 relative rounded-md shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <span className="text-gray-500 sm:text-sm">$</span>
+                </div>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={formData.amount}
+                  onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                  className="mt-1 block w-full pl-7 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  required
+                />
+              </div>
             </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700">Description</label>
               <input
@@ -356,6 +702,7 @@ const MonthlyExpenses: React.FC = () => {
                 required
               />
             </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700">Type</label>
               <select
@@ -367,6 +714,7 @@ const MonthlyExpenses: React.FC = () => {
                 <option value="income">Income</option>
               </select>
             </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700">Category</label>
               <select
@@ -387,6 +735,7 @@ const MonthlyExpenses: React.FC = () => {
                 }
               </select>
             </div>
+
             <div>
               <label className="block text-sm font-medium text-gray-700">Date</label>
               <input
@@ -397,24 +746,67 @@ const MonthlyExpenses: React.FC = () => {
                 required
               />
             </div>
-            <div className="flex items-center mt-6">
-              <button
-                type="submit"
-                className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
-              >
-                {editingTransaction ? 'Update' : 'Add'} Transaction
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setIsAddingTransaction(false);
-                  setEditingTransaction(null);
-                }}
-                className="ml-4 text-gray-600 hover:text-gray-800"
-              >
-                Cancel
-              </button>
+
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center">
+                <input
+                  type="checkbox"
+                  id="recurring"
+                  checked={formData.recurring}
+                  onChange={(e) => setFormData({ ...formData, recurring: e.target.checked })}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <label htmlFor="recurring" className="ml-2 block text-sm text-gray-900">
+                  Recurring
+                </label>
+              </div>
+
+              {formData.recurring && (
+                <div className="flex-1">
+                  <select
+                    value={formData.frequency}
+                    onChange={(e) => setFormData({ ...formData, frequency: e.target.value as any })}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  >
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                  </select>
+                </div>
+              )}
             </div>
+          </div>
+
+          <div className="mt-6 flex items-center justify-end space-x-3">
+            <button
+              type="button"
+              onClick={() => {
+                setIsAddingTransaction(false);
+                setEditingTransaction(null);
+                setFormData({
+                  amount: '',
+                  description: '',
+                  category: '',
+                  type: 'expense',
+                  date: format(new Date(), 'yyyy-MM-dd'),
+                  recurring: false,
+                  frequency: 'monthly'
+                });
+              }}
+              className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className={`px-4 py-2 rounded-md text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                editingTransaction 
+                  ? 'bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500'
+                  : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
+              }`}
+            >
+              {editingTransaction ? 'Save Changes' : 'Add Transaction'}
+            </button>
           </div>
         </form>
       )}
