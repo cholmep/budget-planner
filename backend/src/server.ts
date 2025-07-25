@@ -13,10 +13,14 @@ import categoryRoutes from './routes/categories';
 import timelineRoutes from './routes/timeline';
 import assetsRouter from './routes/assets';
 
-
+// Load environment variables
 dotenv.config();
-console.log('JWT_SECRET:', process.env.JWT_SECRET);
 
+// Validate required environment variables
+if (!process.env.JWT_SECRET) {
+  console.error('JWT_SECRET is required');
+  process.exit(1);
+}
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -25,7 +29,7 @@ const PORT = process.env.PORT || 5001;
 const corsOptions = {
   origin: process.env.NODE_ENV === 'production' ? process.env.FRONTEND_URL : 'http://localhost:3000',
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization']
 };
 
@@ -33,6 +37,14 @@ const corsOptions = {
 app.use(helmet());
 app.use(cors(corsOptions));
 app.use(express.json());
+
+// Error handling middleware
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error(err.stack);
+  res.status(err.status || 500).json({
+    message: err.message || 'Internal Server Error'
+  });
+});
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -46,7 +58,11 @@ app.use('/api/assets', assetsRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    mongo: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+  });
 });
 
 // MongoDB connection
@@ -100,13 +116,14 @@ const startServer = async (retries = 3) => {
     server.on('error', (error: any) => {
       if (error.code === 'EADDRINUSE') {
         console.log(`Port ${PORT} is busy, retrying...`);
+        server.close();
+        
         if (retries > 0) {
           setTimeout(() => {
-            server.close();
             startServer(retries - 1);
           }, 1000);
         } else {
-          console.error(`Could not start server after ${retries} retries`);
+          console.error(`Could not start server after ${3 - retries} retries`);
           process.exit(1);
         }
       } else {
@@ -117,7 +134,14 @@ const startServer = async (retries = 3) => {
 
   } catch (error) {
     console.error('Failed to start server:', error);
-    process.exit(1);
+    if (retries > 0) {
+      console.log(`Retrying in 1 second... (${retries} attempts remaining)`);
+      setTimeout(() => {
+        startServer(retries - 1);
+      }, 1000);
+    } else {
+      process.exit(1);
+    }
   }
 };
 

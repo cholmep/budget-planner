@@ -1,12 +1,22 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { IUser } from '../models/User';
+import User from '../models/User';
 
-export interface AuthRequest extends Request {
-  user: IUser;
+// Extend Express Request type to include user
+declare global {
+  namespace Express {
+    interface Request {
+      user?: {
+        _id: string;
+        email: string;
+        firstName: string;
+        lastName: string;
+      };
+    }
+  }
 }
 
-export const authMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+export const protect = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
 
@@ -14,13 +24,29 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
       return res.status(401).json({ message: 'No authentication token provided' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key') as { userId: string };
+    const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as { userId: string };
     
+    // Get user from database (excluding password)
+    const user = await User.findById(decoded.userId).select('-password');
+    
+    if (!user) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+
     // Add user to request
-    (req as AuthRequest).user = { _id: decoded.userId } as IUser;
+    req.user = {
+      _id: user._id.toString(),
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName
+    };
     
     next();
   } catch (error) {
+    console.error('Auth middleware error:', error);
     res.status(401).json({ message: 'Invalid authentication token' });
   }
 };
+
+// For backward compatibility
+export const authMiddleware = protect;
