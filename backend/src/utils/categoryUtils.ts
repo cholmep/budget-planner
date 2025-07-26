@@ -58,7 +58,7 @@ const paymentTypeRules: PaymentTypeRule[] = [
   },
   // Common debit transactions (default will be debit if no match)
   { 
-    pattern: /EFTPOS|DEBIT|DIRECT DEBIT|BANK TRANSFER|BPAY|AUTOPAY|PAYPAL/i, 
+    pattern: /EFTPOS|DEBIT|DIRECT DEBIT|BPAY|AUTOPAY|PAYPAL/i, 
     paymentType: 'debit' 
   }
 ];

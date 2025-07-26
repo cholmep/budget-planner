@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import { format, parseISO, addMonths, subMonths } from 'date-fns';
-import { PlusCircle, Edit2, Trash2, RefreshCw, ChevronLeft, ChevronRight, X, TrendingUp, TrendingDown } from 'lucide-react';
+import { PlusCircle, Edit2, Trash2, RefreshCw, ChevronLeft, ChevronRight, X, TrendingUp, TrendingDown, Upload, AlertCircle, CheckCircle, ArrowRightLeft } from 'lucide-react';
 import axios from 'axios';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   Cell, ReferenceLine
 } from 'recharts';
+import { useAuth } from '../contexts/AuthContext';
 
 // Add axios interceptor for auth token
 const token = localStorage.getItem('token');
@@ -29,7 +30,8 @@ interface Transaction {
   type: 'income' | 'expense';
   date: string;
   recurring: boolean;
-  frequency?: 'weekly' | 'monthly' | 'yearly';
+  frequency?: 'weekly' | 'fortnightly' | 'monthly' | 'yearly' | 'once';
+  paymentType: 'debit' | 'credit' | 'cash';
 }
 
 interface FormData {
@@ -39,7 +41,8 @@ interface FormData {
   type: 'income' | 'expense';
   date: string;
   recurring: boolean;
-  frequency: 'weekly' | 'monthly' | 'yearly';
+  frequency: 'weekly' | 'fortnightly' | 'monthly' | 'yearly' | 'once';
+  paymentType: 'debit' | 'credit' | 'cash';
 }
 
 interface CategorySummaryBase {
@@ -84,6 +87,17 @@ interface Budget {
   netIncome: number;
 }
 
+interface UploadStatus {
+  loading: boolean;
+  error: string | null;
+  success: string | null;
+  stats?: {
+    total: number;
+    imported: number;
+    skipped: number;
+  };
+}
+
 const MonthlyExpenses: React.FC = () => {
   const queryClient = useQueryClient();
   const [selectedMonth, setSelectedMonth] = useState(new Date());
@@ -94,6 +108,12 @@ const MonthlyExpenses: React.FC = () => {
     showManual: true,
     showBank: true
   });
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus>({
+    loading: false,
+    error: null,
+    success: null
+  });
+  const { token } = useAuth();
 
   // Form state with proper typing
   const [formData, setFormData] = useState<FormData>({
@@ -103,7 +123,8 @@ const MonthlyExpenses: React.FC = () => {
     type: 'expense',
     date: format(new Date(), 'yyyy-MM-dd'),
     recurring: false,
-    frequency: 'monthly'
+    frequency: 'monthly',
+    paymentType: 'debit'
   });
 
   // Clear error when form state changes
@@ -112,7 +133,7 @@ const MonthlyExpenses: React.FC = () => {
   }, [formData]);
 
   // Fetch monthly data
-  const { data: monthlyData, isLoading, error } = useQuery<MonthlyData>(
+  const { data: monthlyData, isLoading, error, refetch: refetchTransactions } = useQuery<MonthlyData>(
     ['monthlyTransactions', selectedMonth],
     async () => {
       const month = selectedMonth.getMonth() + 1;
@@ -220,7 +241,8 @@ const MonthlyExpenses: React.FC = () => {
           type: 'expense',
           date: format(new Date(), 'yyyy-MM-dd'),
           recurring: false,
-          frequency: 'monthly'
+          frequency: 'monthly',
+          paymentType: 'debit'
         });
         setApiError(null);
       },
@@ -258,7 +280,8 @@ const MonthlyExpenses: React.FC = () => {
           type: 'expense',
           date: format(new Date(), 'yyyy-MM-dd'),
           recurring: false,
-          frequency: 'monthly'
+          frequency: 'monthly',
+          paymentType: 'debit'
         });
         setApiError(null);
       },
@@ -320,9 +343,49 @@ const MonthlyExpenses: React.FC = () => {
       type: transaction.type,
       date: format(parseISO(transaction.date), 'yyyy-MM-dd'),
       recurring: transaction.recurring || false,
-      frequency: transaction.frequency || 'monthly'
+      frequency: transaction.frequency || 'monthly',
+      paymentType: 'debit' // Assuming default for edit
     });
     setIsAddingTransaction(true);
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadStatus({ loading: true, error: null, success: null });
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await axios.post('/api/transactions/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      setUploadStatus({
+        loading: false,
+        error: null,
+        success: response.data.message,
+        stats: {
+          total: response.data.total,
+          imported: response.data.imported,
+          skipped: response.data.skipped
+        }
+      });
+
+      // Refresh transactions list
+      refetchTransactions();
+    } catch (error: any) {
+      setUploadStatus({
+        loading: false,
+        error: error.response?.data?.message || 'Error uploading file',
+        success: null
+      });
+    }
   };
 
   // Calculate monthly amount based on frequency
@@ -342,12 +405,12 @@ const MonthlyExpenses: React.FC = () => {
   };
 
   // Group transactions by category
-  const getCategorySummaries = (transactions: Transaction[], type: 'income' | 'expense'): CategorySummaryBase[] => {
+  const getCategorySummaries = (transactions: Transaction[], type: 'income' | 'expense' | 'transfer'): CategorySummaryBase[] => {
     const summaryMap = new Map<string, CategorySummaryBase>();
     
     // Initialize with budget categories
     budgetData?.categories
-      .filter(cat => cat.type === type)
+      .filter(cat => type === 'transfer' || cat.type === type)
       .forEach(cat => {
         summaryMap.set(cat.name, {
           name: cat.name,
@@ -386,74 +449,306 @@ const MonthlyExpenses: React.FC = () => {
 
   return (
     <div className="container mx-auto px-4 py-8">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-3xl font-bold">Monthly Expenses</h1>
-        <button
-          onClick={() => setIsAddingTransaction(true)}
-          className="bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center gap-2"
-        >
-          <PlusCircle size={20} />
-          Add Manual Transaction
-        </button>
-      </div>
-
-      {/* Error Display */}
-      {apiError && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-          {apiError}
+      {/* Header Section with Month Picker */}
+      <div className="flex justify-between items-center mb-8">
+        <div className="flex items-center space-x-4">
+          <button
+            onClick={() => setSelectedMonth(subMonths(selectedMonth, 1))}
+            className="p-2 hover:bg-gray-100 rounded-full"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <h2 className="text-2xl font-semibold">
+            {format(selectedMonth, 'MMMM yyyy')}
+          </h2>
+          <button
+            onClick={() => setSelectedMonth(addMonths(selectedMonth, 1))}
+            className="p-2 hover:bg-gray-100 rounded-full"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
         </div>
-      )}
-
-      {/* Filters */}
-      <div className="mb-6 flex items-center space-x-4">
-        <div className="flex items-center space-x-2">
-          <input
-            type="checkbox"
-            id="showManual"
-            checked={filters.showManual}
-            onChange={(e) => setFilters(prev => ({ ...prev, showManual: e.target.checked }))}
-            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-          />
-          <label htmlFor="showManual" className="text-sm text-gray-700">Show Manual Transactions</label>
-        </div>
-        <div className="flex items-center space-x-2">
-          <input
-            type="checkbox"
-            id="showBank"
-            checked={filters.showBank}
-            onChange={(e) => setFilters(prev => ({ ...prev, showBank: e.target.checked }))}
-            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-          />
-          <label htmlFor="showBank" className="text-sm text-gray-700">Show Bank Transactions</label>
-        </div>
-      </div>
-
-      {/* Month Selection */}
-      <div className="mb-8 flex items-center justify-center space-x-4">
-        <button
-          onClick={() => setSelectedMonth(prevMonth => subMonths(prevMonth, 1))}
-          className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-          aria-label="Previous month"
-        >
-          <ChevronLeft className="h-5 w-5 text-gray-600" />
-        </button>
         
-        <div className="flex items-center bg-white px-4 py-2 rounded-lg shadow">
-          <input
-            type="month"
-            value={format(selectedMonth, 'yyyy-MM')}
-            onChange={(e) => setSelectedMonth(new Date(e.target.value))}
-            className="border-none focus:ring-0 text-center font-medium text-gray-700"
-          />
+        {/* Action Buttons */}
+        <div className="flex items-center space-x-4">
+          <button
+            onClick={() => setIsAddingTransaction(true)}
+            className="flex items-center px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+          >
+            <PlusCircle className="w-5 h-5 mr-2" />
+            Add Transaction
+          </button>
+          
+          <label className="flex items-center px-4 py-2 bg-primary-500 text-white rounded-lg cursor-pointer hover:bg-primary-600 transition-colors">
+            <Upload className="w-5 h-5 mr-2" />
+            Import CSV
+            <input
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={handleFileUpload}
+              disabled={uploadStatus.loading}
+            />
+          </label>
         </div>
+      </div>
 
-        <button
-          onClick={() => setSelectedMonth(prevMonth => addMonths(prevMonth, 1))}
-          className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-          aria-label="Next month"
-        >
-          <ChevronRight className="h-5 w-5 text-gray-600" />
-        </button>
+      {/* Form and Upload Status Section */}
+      <div className="space-y-8 mb-8">
+        {/* Transaction Form */}
+        {(isAddingTransaction || editingTransaction) && (
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-semibold">
+                {editingTransaction ? 'Edit Transaction' : 'Add New Transaction'}
+              </h3>
+              <button
+                onClick={() => {
+                  setIsAddingTransaction(false);
+                  setEditingTransaction(null);
+                  setFormData({
+                    amount: '',
+                    description: '',
+                    category: '',
+                    type: 'expense',
+                    date: format(new Date(), 'yyyy-MM-dd'),
+                    recurring: false,
+                    frequency: 'monthly',
+                    paymentType: 'debit'
+                  });
+                }}
+                className="p-2 hover:bg-gray-100 rounded-full"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {/* Error Display */}
+              {apiError && (
+                <div className="p-2 bg-red-50 border border-red-200 rounded-md text-red-700">
+                  {apiError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Amount</label>
+                <div className="mt-1 relative rounded-md shadow-sm">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <span className="text-gray-500 sm:text-sm">$</span>
+                  </div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={formData.amount}
+                    onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                    className="mt-1 block w-full pl-7 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Description</label>
+                <input
+                  type="text"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  required
+                />
+              </div>
+
+              {/* Transaction Type Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Type</label>
+                <select
+                  value={formData.type}
+                  onChange={(e) => setFormData({ ...formData, type: e.target.value as 'income' | 'expense', category: '' })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                >
+                  <option value="expense">Expense</option>
+                  <option value="income">Income</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Category</label>
+                <select
+                  value={formData.category}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  required
+                >
+                  <option value="">Select a category</option>
+                  {categories
+                    ?.filter(cat => cat.type === formData.type)
+                    .sort((a, b) => a.sortOrder - b.sortOrder)
+                    .map(category => (
+                      <option key={category._id} value={category.name}>
+                        {category.name}
+                      </option>
+                    ))
+                  }
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Date</label>
+                <input
+                  type="date"
+                  value={formData.date}
+                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  required
+                />
+              </div>
+
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="recurring"
+                    checked={formData.recurring}
+                    onChange={(e) => setFormData({ ...formData, recurring: e.target.checked })}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="recurring" className="ml-2 block text-sm text-gray-900">
+                    Recurring
+                  </label>
+                </div>
+
+                {formData.recurring && (
+                  <div className="flex-1">
+                    <select
+                      value={formData.frequency}
+                      onChange={(e) => setFormData({ ...formData, frequency: e.target.value as any })}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    >
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="yearly">Yearly</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Payment Type Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Payment Type</label>
+                <select
+                  value={formData.paymentType}
+                  onChange={(e) => setFormData({ ...formData, paymentType: e.target.value as 'debit' | 'credit' | 'cash' })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                >
+                  <option value="debit">Debit</option>
+                  <option value="credit">Credit</option>
+                  <option value="cash">Cash</option>
+                </select>
+              </div>
+
+              <div className="mt-6 flex items-center justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddingTransaction(false);
+                    setEditingTransaction(null);
+                    setFormData({
+                      amount: '',
+                      description: '',
+                      category: '',
+                      type: 'expense',
+                      date: format(new Date(), 'yyyy-MM-dd'),
+                      recurring: false,
+                      frequency: 'monthly',
+                      paymentType: 'debit'
+                    });
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className={`px-4 py-2 rounded-md text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                    editingTransaction 
+                      ? 'bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500'
+                      : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
+                  }`}
+                >
+                  {editingTransaction ? 'Save Changes' : 'Add Transaction'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* CSV Upload Status and Instructions */}
+        {(uploadStatus.loading || uploadStatus.error || uploadStatus.success) && (
+          <div className="bg-white rounded-lg shadow p-6">
+            {uploadStatus.loading && (
+              <div className="flex items-center text-gray-600">
+                <RefreshCw className="w-5 h-5 mr-2 animate-spin" />
+                Uploading...
+              </div>
+            )}
+            {uploadStatus.error && (
+              <div className="flex items-center text-red-600">
+                <AlertCircle className="w-5 h-5 mr-2" />
+                {uploadStatus.error}
+              </div>
+            )}
+            {uploadStatus.success && (
+              <div className="space-y-4">
+                <div className="text-green-600 flex items-center">
+                  <CheckCircle className="w-5 h-5 mr-2" />
+                  {uploadStatus.success}
+                </div>
+                {uploadStatus.stats && (
+                  <div className="grid grid-cols-3 gap-4 bg-gray-50 p-4 rounded-md">
+                    <div>
+                      <p className="text-sm text-gray-600">Total Rows</p>
+                      <p className="text-lg font-medium">{uploadStatus.stats.total}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">Successfully Imported</p>
+                      <p className="text-lg font-medium text-green-600">{uploadStatus.stats.imported}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">Skipped</p>
+                      <p className="text-lg font-medium text-yellow-600">{uploadStatus.stats.skipped}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="mt-6 text-sm text-gray-600">
+              <p className="font-medium mb-2">CSV File Requirements:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>File must be in CSV format</li>
+                <li>Required columns:
+                  <ul className="list-disc list-inside ml-4 mt-1">
+                    <li>date (DD/MM/YYYY format, e.g., 24/07/2025)</li>
+                    <li>amount (with quotes and negative sign for expenses, e.g., "-123.45")</li>
+                    <li>merchant (transaction description)</li>
+                  </ul>
+                </li>
+                <li>First row must contain column headers</li>
+                <li>Extra columns after merchant will be ignored</li>
+              </ul>
+              <div className="mt-4 p-4 bg-gray-100 rounded">
+                <p className="font-medium mb-2">Example CSV Format:</p>
+                <pre className="text-xs">
+                  date,amount,merchant<br/>
+                  24/07/2025,"-15.50",SQ *LIME CATERING @ RACV  Noble Park<br/>
+                  24/07/2025,"-45.50",SQ *THE MALE ROOM         Mount Eliza<br/>
+                  24/07/2025,"-161.50",SchoolPix                 0387864800<br/>
+                  24/07/2025,"-134.85",RACV INSURANCE            MELBOURNE
+                </pre>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Summary Cards */}
@@ -645,171 +940,6 @@ const MonthlyExpenses: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Transaction Form */}
-      {(isAddingTransaction || editingTransaction) && (
-        <form onSubmit={handleSubmit} className="mb-8 bg-white p-6 rounded-lg shadow">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">
-              {editingTransaction ? 'Edit Transaction' : 'Add New Transaction'}
-            </h2>
-            <button
-              type="button"
-              onClick={() => {
-                setIsAddingTransaction(false);
-                setEditingTransaction(null);
-                setFormData({
-                  amount: '',
-                  description: '',
-                  category: '',
-                  type: 'expense',
-                  date: format(new Date(), 'yyyy-MM-dd'),
-                  recurring: false,
-                  frequency: 'monthly'
-                });
-              }}
-              className="text-gray-400 hover:text-gray-600"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Amount</label>
-              <div className="mt-1 relative rounded-md shadow-sm">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <span className="text-gray-500 sm:text-sm">$</span>
-                </div>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formData.amount}
-                  onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                  className="mt-1 block w-full pl-7 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Description</label>
-              <input
-                type="text"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Type</label>
-              <select
-                value={formData.type}
-                onChange={(e) => setFormData({ ...formData, type: e.target.value as 'income' | 'expense', category: '' })}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              >
-                <option value="expense">Expense</option>
-                <option value="income">Income</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Category</label>
-              <select
-                value={formData.category}
-                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                required
-              >
-                <option value="">Select a category</option>
-                {categories
-                  ?.filter(cat => cat.type === formData.type)
-                  .sort((a, b) => a.sortOrder - b.sortOrder)
-                  .map(category => (
-                    <option key={category._id} value={category.name}>
-                      {category.name}
-                    </option>
-                  ))
-                }
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Date</label>
-              <input
-                type="date"
-                value={formData.date}
-                onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                required
-              />
-            </div>
-
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="recurring"
-                  checked={formData.recurring}
-                  onChange={(e) => setFormData({ ...formData, recurring: e.target.checked })}
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <label htmlFor="recurring" className="ml-2 block text-sm text-gray-900">
-                  Recurring
-                </label>
-              </div>
-
-              {formData.recurring && (
-                <div className="flex-1">
-                  <select
-                    value={formData.frequency}
-                    onChange={(e) => setFormData({ ...formData, frequency: e.target.value as any })}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                  >
-                    <option value="weekly">Weekly</option>
-                    <option value="monthly">Monthly</option>
-                    <option value="yearly">Yearly</option>
-                  </select>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-6 flex items-center justify-end space-x-3">
-            <button
-              type="button"
-              onClick={() => {
-                setIsAddingTransaction(false);
-                setEditingTransaction(null);
-                setFormData({
-                  amount: '',
-                  description: '',
-                  category: '',
-                  type: 'expense',
-                  date: format(new Date(), 'yyyy-MM-dd'),
-                  recurring: false,
-                  frequency: 'monthly'
-                });
-              }}
-              className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className={`px-4 py-2 rounded-md text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-                editingTransaction 
-                  ? 'bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500'
-                  : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500'
-              }`}
-            >
-              {editingTransaction ? 'Save Changes' : 'Add Transaction'}
-            </button>
-          </div>
-        </form>
-      )}
 
       {/* Transactions List */}
       <div className="mt-8">
